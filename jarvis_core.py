@@ -914,8 +914,9 @@ class JarvisCore:
                     pass
 
             # If user explicitly said 'stop'/'to'xta' and a confirmation is pending, cancel the pending action
-            if q in ["stop", "to'xta", "toxta", "bekor", "cancel"] and getattr(self, "safety_manager", None):
-                cancel_res = self.safety_manager.cancel_pending()
+            safety_mgr = getattr(self, "safety", None) or getattr(self, "safety_manager", None)
+            if q in ["stop", "to'xta", "toxta", "bekor", "cancel"] and safety_mgr:
+                cancel_res = safety_mgr.cancel_pending()
                 if cancel_res:
                     return cancel_res
 

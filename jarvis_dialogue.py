@@ -21,6 +21,7 @@ import time
 import re
 import logging
 import threading
+import uuid
 from pathlib import Path
 from typing import Dict, List, Optional, Any, Union
 
@@ -139,7 +140,7 @@ class JarvisDialogueManager:
             else:
                 norm_options.append({"text": str(opt), "callback_data": f"clarify:{str(opt).lower().strip()}"})
 
-        prompt_id = f"prompt_{int(time.time() * 1000)}"
+        prompt_id = f"prompt_{uuid.uuid4().hex}"
         record = {
             "prompt_id": prompt_id,
             "user_id": uid,
