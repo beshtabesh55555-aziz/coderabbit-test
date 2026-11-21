@@ -696,9 +696,11 @@ class JarvisCore:
         # 1. Check if this is a Chat-to-Chat Media Transfer (parse source chat first)
         is_chat_transfer = any(w in q for w in ["botdagi", "botdan", "kanaldagi", "kanaldan", "chatdagi", "chatdan", "vkm", "vkmusic", "saved messages", "saqlangan"])
         source_chat = None
+        src_span = None
         if is_chat_transfer:
             m_src = re.search(r'(@?[a-zA-Z0-9_]+?)\s*(?:botdagi|botdan|kanaldagi|kanaldan|chatdagi|chatdan)', raw_q, re.IGNORECASE)
             if m_src:
+                src_span = m_src.span(1)
                 src_tok = m_src.group(1).strip()
                 if src_tok.lower() in ["vkm", "vkmusic", "@vkm", "@vkmusic"]:
                     source_chat = "@vkmusic_bot"
@@ -713,20 +715,24 @@ class JarvisCore:
             if not source_chat:
                 source_chat = "@vkmusic_bot" if ("qo'shiq" in q or "musiqa" in q) else "me"
 
-        # 2. Extract destination recipient (distinct from source_chat)
+        # 2. Extract destination recipient (distinct from source_chat and outside source token position)
         target = None
-        m_handle_dest = re.search(r'(@[a-zA-Z0-9_]{3,})(?:(?:\s+)?(?:ga|ka|qa)\b)?', raw_q, re.IGNORECASE)
-        if m_handle_dest:
-            h_cand = m_handle_dest.group(1).strip()
+        for m_h in re.finditer(r'(@[a-zA-Z0-9_]{3,})(?:(?:\s+)?(?:ga|ka|qa)\b)?', raw_q, re.IGNORECASE):
+            if src_span and (m_h.start() < src_span[1] and m_h.end() > src_span[0]):
+                continue
+            h_cand = m_h.group(1).strip()
             if not source_chat or h_cand.lower() != source_chat.lower():
                 target = h_cand
+                break
 
         if not target:
-            m_dest = re.search(r'\b([a-zA-Z0-9_\'’`]+?)(?:ga|ka|qa)\b', raw_q, re.IGNORECASE)
-            if m_dest:
-                cand = m_dest.group(1).strip()
+            for m_d in re.finditer(r'\b([a-zA-Z0-9_\'’`]+?)(?:ga|ka|qa)\b', raw_q, re.IGNORECASE):
+                if src_span and (m_d.start() < src_span[1] and m_d.end() > src_span[0]):
+                    continue
+                cand = m_d.group(1).strip()
                 if cand.lower() not in ["telegram", "bot", "monika", "fayl"] and (not source_chat or cand.lower() != source_chat.lower()):
                     target = cand
+                    break
 
         if not target:
             all_handles = re.findall(r'(@[a-zA-Z0-9_]{3,})', raw_q)
@@ -903,9 +909,11 @@ class JarvisCore:
 
         # Sensitive Data Exposure Gate (CWE-532 / CWE-200):
         # Route actual credential submissions through dedicated local handler before logging, recording, or tracing
-        m_pin = re.search(r'\b(?:parol|kod|pin|parolim|kodim)\s*[:=]?\s*([a-zA-Z0-9!@#\$%\^&*_\-]{3,})', raw_query, re.IGNORECASE)
+        m_pin = re.search(r'\b(?:parol|kod|pin|parolim|kodim)\b\s*[:=]\s*([a-zA-Z0-9!@#\$%\^&*_\-]{3,})', raw_query, re.IGNORECASE)
+        if not m_pin:
+            m_pin = re.search(r'\b(?:parol|kod|pin)\b\s+([0-9]{4,8})\b', raw_query, re.IGNORECASE)
         pin_val = m_pin.group(1).strip() if m_pin else None
-        if pin_val and pin_val.lower() in ["kirit", "kiritish", "sorash", "so'rash", "ochish", "bilan", "nima", "qanday"]:
+        if pin_val and pin_val.lower() in ["kirit", "kiritish", "sorash", "so'rash", "ochish", "bilan", "nima", "qanday", "berish", "yozish"]:
             pin_val = None
 
         if pin_val:
@@ -1315,10 +1323,20 @@ class JarvisCore:
 
                     if pending_fcs:
                         logger.warning(f"Tool round limit reached with pending tool calls: {pending_fcs}")
-                        completed_names = [fn for fn, _, _, _ in executed_tools]
-                        completed_str = ", ".join(completed_names) if completed_names else "hech biri"
+                        successful_names = [
+                            fn for fn, _, res, v in executed_tools
+                            if (v and v.get("verified_success") is True) or (isinstance(res, dict) and res.get("success") is True)
+                        ]
+                        failed_names = [
+                            fn for fn, _, res, v in executed_tools
+                            if (v and v.get("verified_success") is False) or (isinstance(res, dict) and res.get("success") is False)
+                        ]
+                        completed_str = ", ".join(successful_names) if successful_names else "hech qaysi"
                         pending_str = ", ".join(pending_fcs)
-                        incomplete_reply = f"Amallar qisman bajarildi ({completed_str}). Biroq limit sababli quyidagilar bajarilmadi: {pending_str}."
+                        status_details = f"Muvaffaqiyatli: {completed_str}"
+                        if failed_names:
+                            status_details += f"; Xatolik yuz berdi: {', '.join(failed_names)}"
+                        incomplete_reply = f"Amallar qisman bajarildi ({status_details}). Biroq limit sababli quyidagilar bajarilmadi: {pending_str}."
                         self.tracer.complete_trace(trace_ctx, incomplete_reply, status="partially_completed")
                         _speak_if_allowed(incomplete_reply)
                         return incomplete_reply
@@ -1867,11 +1885,16 @@ class JarvisCore:
                 if m_coords:
                     mx, my = int(m_coords.group(1)), int(m_coords.group(2))
                     res = self.desktop.mouse_move(mx, my, smooth=True)
-                    actual_x = res.get("x", mx) if isinstance(res, dict) else mx
-                    actual_y = res.get("y", my) if isinstance(res, dict) else my
-                    reply = f"Sichqoncha kursorini ({actual_x}, {actual_y}) koordinatasiga siljitdim."
+                    actual_x = res.get("x") if isinstance(res, dict) else None
+                    actual_y = res.get("y") if isinstance(res, dict) else None
+                    if res.get("success") and actual_x is not None and actual_y is not None:
+                        reply = f"Sichqoncha kursorini ({actual_x}, {actual_y}) koordinatasiga siljitdim."
+                    elif actual_x is not None and actual_y is not None:
+                        reply = f"Kursor ({actual_x}, {actual_y}) koordinatasiga yetdi (mo'ljal: {mx}, {my})."
+                    else:
+                        reply = "Kursor harakatlantirilmadi, desktop interfeysi xatosi yuz berdi."
                 else:
-                    reply = "Iltimos, kursor koordinatasini ko'rsating (masalan: 'kursorni 500x300 ga siljit')."
+                    reply = "Iltimos, kursor koordinatasini ko'rsating (masalan: 'kursorni siljit 500x300')."
             _speak_if_allowed(reply)
             return reply
 
@@ -2124,12 +2147,14 @@ class JarvisCore:
 
     @staticmethod
     def _redact_voice_transcript(text: str) -> str:
-        """Redact potential PIN or credential submissions from voice logs."""
-        m = re.search(r'\b(?:parol|kod|pin|parolim|kodim)\s*[:=]?\s*([a-zA-Z0-9!@#\$%\^&*_\-]{3,})', text, re.IGNORECASE)
+        """Replace sensitive credential transcripts with fixed redaction message."""
+        m = re.search(r'\b(?:parol|kod|pin|parolim|kodim)\b\s*[:=]\s*([a-zA-Z0-9!@#\$%\^&*_\-]{3,})', text, re.IGNORECASE)
+        if not m:
+            m = re.search(r'\b(?:parol|kod|pin)\b\s+([0-9]{4,8})\b', text, re.IGNORECASE)
         if m:
             val = m.group(1).strip()
-            if val.lower() not in ["kirit", "kiritish", "sorash", "so'rash", "ochish", "bilan", "nima", "qanday"]:
-                return re.sub(re.escape(val), "[REDACTED]", text, count=1)
+            if val.lower() not in ["kirit", "kiritish", "sorash", "so'rash", "ochish", "bilan", "nima", "qanday", "berish", "yozish"]:
+                return "[REDACTED CREDENTIAL SUBMISSION]"
         return text
 
     def _voice_loop(self):

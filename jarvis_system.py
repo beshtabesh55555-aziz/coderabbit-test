@@ -315,11 +315,11 @@ class JarvisSystem:
         try:
             user32 = ctypes.windll.user32
 
-            # Security validation: If PIN is provided, validate strictly numeric digits before any action
+            # Security validation: If PIN is provided, validate strictly ASCII numeric digits before any action
             clean_pin = None
             if pin and str(pin).strip():
                 clean_pin = str(pin).strip()
-                if not clean_pin.isdigit():
+                if not re.fullmatch(r'[0-9]+', clean_pin):
                     return {
                         "success": False,
                         "is_locked": self.get_lock_status().get("is_locked", False),
@@ -604,8 +604,12 @@ class JarvisSystem:
                 try:
                     if p.is_running() and (p.name() or "").lower() == target_name:
                         remaining_procs.append(p)
-                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                except psutil.NoSuchProcess:
+                    # Confirmed exited
                     pass
+                except (psutil.AccessDenied, Exception):
+                    # Inaccessible or error querying - retain as remaining to prevent false success
+                    remaining_procs.append(p)
             closed_count = len(target_procs) - len(remaining_procs)
 
             # 2. If force is requested and some processes remain, terminate them using retained process handles
@@ -616,7 +620,16 @@ class JarvisSystem:
                     except (psutil.NoSuchProcess, psutil.AccessDenied):
                         pass
                 time.sleep(0.5)
-                remaining_procs = [p for p in remaining_procs if p.is_running()]
+                surviving_procs = []
+                for p in remaining_procs:
+                    try:
+                        if p.is_running():
+                            surviving_procs.append(p)
+                    except psutil.NoSuchProcess:
+                        pass
+                    except (psutil.AccessDenied, Exception):
+                        surviving_procs.append(p)
+                remaining_procs = surviving_procs
                 closed_count = len(target_procs) - len(remaining_procs)
 
             success = (len(remaining_procs) == 0)
@@ -647,6 +660,7 @@ class JarvisSystem:
     _shutdown_lock: threading.Lock = threading.Lock()
     _shutdown_timer: Optional[threading.Timer] = None
     _shutdown_pending: bool = False
+    _shutdown_req_id: int = 0
     _last_shutdown_result: Optional[Dict[str, Any]] = None
 
     def shutdown_pc(self, delay_seconds: int = 60, restart: bool = False, force: bool = False) -> Dict[str, Any]:
@@ -656,6 +670,9 @@ class JarvisSystem:
         action = "Reboot" if restart else "Shutdown"
 
         with self._shutdown_lock:
+            self._shutdown_req_id += 1
+            current_req_id = self._shutdown_req_id
+
             if self._shutdown_timer:
                 self._shutdown_timer.cancel()
                 self._shutdown_timer = None
@@ -667,6 +684,7 @@ class JarvisSystem:
                     cmd.append("/f")
                 res = subprocess.run(cmd, capture_output=True, text=True)
                 self._last_shutdown_result = {
+                    "req_id": current_req_id,
                     "returncode": res.returncode,
                     "stdout": res.stdout,
                     "stderr": res.stderr,
@@ -676,6 +694,7 @@ class JarvisSystem:
                     "action": action,
                     "delay_seconds": 0,
                     "force": force,
+                    "req_id": current_req_id,
                     "error": res.stderr.strip() if res.returncode != 0 else None,
                     "message": f"{action} triggered immediately.",
                 }
@@ -684,7 +703,7 @@ class JarvisSystem:
 
             def _execute_scheduled_shutdown():
                 with self._shutdown_lock:
-                    if not self._shutdown_pending:
+                    if current_req_id != self._shutdown_req_id or not self._shutdown_pending:
                         return
                     self._shutdown_pending = False
                     self._shutdown_timer = None
@@ -694,11 +713,13 @@ class JarvisSystem:
                     cmd.append("/f")
                 res = subprocess.run(cmd, capture_output=True, text=True)
                 with self._shutdown_lock:
-                    self._last_shutdown_result = {
-                        "returncode": res.returncode,
-                        "stdout": res.stdout,
-                        "stderr": res.stderr,
-                    }
+                    if current_req_id == self._shutdown_req_id:
+                        self._last_shutdown_result = {
+                            "req_id": current_req_id,
+                            "returncode": res.returncode,
+                            "stdout": res.stdout,
+                            "stderr": res.stderr,
+                        }
                     if res.returncode != 0:
                         logger.error(f"Scheduled {action} failed with code {res.returncode}: {res.stderr}")
 
@@ -712,6 +733,7 @@ class JarvisSystem:
                 "action": action,
                 "delay_seconds": delay,
                 "force": force,
+                "req_id": current_req_id,
                 "message": f"{action} scheduled in {delay} seconds ({desc}).",
             }
 
@@ -719,6 +741,7 @@ class JarvisSystem:
         """Cancel any scheduled shutdown or reboot."""
         cancelled = False
         with self._shutdown_lock:
+            self._shutdown_req_id += 1  # Invalidate any in-flight scheduled timer callbacks
             if self._shutdown_pending and self._shutdown_timer:
                 self._shutdown_timer.cancel()
                 self._shutdown_timer = None

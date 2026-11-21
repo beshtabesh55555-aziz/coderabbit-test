@@ -104,19 +104,34 @@ class JarvisDesktop:
 
     def __init__(self, failsafe: bool = True):
         self.failsafe = failsafe
+        self._hdesk = None
         self._attach_desktop()
 
     def _attach_desktop(self):
-        """Ensure thread is attached to the active input desktop and release desktop handle."""
+        """Ensure thread is attached to the active input desktop without thrashing handles."""
+        if getattr(self, "_hdesk", None):
+            return
         try:
             hdesk = user32.OpenInputDesktop(0, False, 0x01FF)
             if hdesk:
-                try:
-                    user32.SetThreadDesktop(hdesk)
-                finally:
+                if user32.SetThreadDesktop(hdesk):
+                    self._hdesk = hdesk
+                else:
                     user32.CloseDesktop(hdesk)
         except Exception:
             pass
+
+    def close(self):
+        """Release attached desktop handle."""
+        if getattr(self, "_hdesk", None):
+            try:
+                user32.CloseDesktop(self._hdesk)
+            except Exception:
+                pass
+            self._hdesk = None
+
+    def __del__(self):
+        self.close()
 
     def check_failsafe(self, target_x: Optional[int] = None, target_y: Optional[int] = None):
         """Verify cursor is not in the fail-safe abort position (0, 0).
@@ -125,11 +140,18 @@ class JarvisDesktop:
             return
         if target_x is not None and target_y is not None and (target_x > 20 or target_y > 20):
             return
-        x, y = self.get_cursor_pos()
+        try:
+            x, y = self.get_cursor_pos()
+        except RuntimeError:
+            return
+
         if x == 0 and y == 0 and target_x is None:
             # Check if deliberate: only raise if cursor stayed at (0, 0)
             time.sleep(0.05)
-            x2, y2 = self.get_cursor_pos()
+            try:
+                x2, y2 = self.get_cursor_pos()
+            except RuntimeError:
+                return
             if x2 == 0 and y2 == 0:
                 logger.warning("FAIL-SAFE TRIGGERED: Mouse is parked at (0, 0).")
                 raise FailSafeException("Mouse hit top-left corner (0, 0). Fail-safe triggered.")
@@ -142,10 +164,16 @@ class JarvisDesktop:
         return w, h
 
     def get_cursor_pos(self) -> Tuple[int, int]:
-        """Return current mouse cursor (x, y) coordinates."""
+        """Return current mouse cursor (x, y) coordinates.
+        Raises RuntimeError if Win32 GetCursorPos fails, preventing false-positive (0, 0) failsafes."""
         self._attach_desktop()
         pt = POINT()
-        user32.GetCursorPos(ctypes.byref(pt))
+        if not user32.GetCursorPos(ctypes.byref(pt)):
+            # Retry once after refreshing desktop attachment (e.g. desktop switch / UAC)
+            self._hdesk = None
+            self._attach_desktop()
+            if not user32.GetCursorPos(ctypes.byref(pt)):
+                raise RuntimeError("Failed to read cursor position via GetCursorPos.")
         return pt.x, pt.y
 
     def mouse_move(self, x: int, y: int, smooth: bool = True, steps: int = 20) -> Dict[str, Any]:
@@ -171,8 +199,17 @@ class JarvisDesktop:
         else:
             user32.SetCursorPos(x, y)
 
-        logger.info(f"Cursor moved to ({x}, {y})")
-        return {"x": x, "y": y, "status": "success"}
+        final_x, final_y = self.get_cursor_pos()
+        success = (final_x == x and final_y == y)
+        logger.info(f"Cursor moved to ({final_x}, {final_y}) (target: {x}, {y})")
+        return {
+            "success": success,
+            "x": final_x,
+            "y": final_y,
+            "target_x": x,
+            "target_y": y,
+            "status": "success" if success else "partial",
+        }
 
     def mouse_click(self, x: Optional[int] = None, y: Optional[int] = None,
                     button: str = "left", clicks: int = 1) -> Dict[str, Any]:
