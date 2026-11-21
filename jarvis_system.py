@@ -315,6 +315,17 @@ class JarvisSystem:
         try:
             user32 = ctypes.windll.user32
 
+            # Security validation: If PIN is provided, validate strictly numeric digits before any action
+            clean_pin = None
+            if pin and str(pin).strip():
+                clean_pin = str(pin).strip()
+                if not clean_pin.isdigit():
+                    return {
+                        "success": False,
+                        "is_locked": self.get_lock_status().get("is_locked", False),
+                        "error": "Xavfsizlik talabi: PIN faqat raqamlardan (0-9) iborat bo'lishi shart.",
+                    }
+
             # Check initial lock state
             initial_status = self.get_lock_status()
             if initial_status.get("is_locked") is False:
@@ -336,22 +347,15 @@ class JarvisSystem:
             time.sleep(0.45)
 
             # If caller explicitly provided PIN, input it only while workstation is confirmed locked
-            if pin and str(pin).strip():
+            if clean_pin:
                 st = self.get_lock_status()
                 if st.get("is_locked") is True:
-                    clean_pin = str(pin).strip()
                     for ch in clean_pin:
-                        if ch.isdigit():
-                            vk = 0x30 + int(ch)
-                            user32.keybd_event(vk, 0, 0, 0)
-                            time.sleep(0.025)
-                            user32.keybd_event(vk, 0, self.KEYEVENTF_KEYUP, 0)
-                            time.sleep(0.025)
-                        else:
-                            user32.keybd_event(0, ord(ch), self.KEYEVENTF_UNICODE, 0)
-                            time.sleep(0.025)
-                            user32.keybd_event(0, ord(ch), self.KEYEVENTF_UNICODE | self.KEYEVENTF_KEYUP, 0)
-                            time.sleep(0.025)
+                        vk = 0x30 + int(ch)
+                        user32.keybd_event(vk, 0, 0, 0)
+                        time.sleep(0.025)
+                        user32.keybd_event(vk, 0, self.KEYEVENTF_KEYUP, 0)
+                        time.sleep(0.025)
 
                     time.sleep(0.05)
                     user32.keybd_event(self.VK_RETURN, 0, 0, 0)
@@ -462,11 +466,21 @@ class JarvisSystem:
         return self.APP_ALIASES.get(key, app_name.strip())
 
     def open_application(self, app_name: str) -> Dict[str, Any]:
-        """Launch an application by friendly name or executable path."""
+        """Launch an application by friendly name, executable path, or approved URI scheme."""
         target = self._resolve_app_target(app_name)
 
-        try:
-            if target.startswith("ms-settings:") or "://" in target:
+        # URI Scheme allowlist validation
+        allowed_schemes = {"http", "https", "mailto", "tel", "ms-settings", "telegram"}
+        if "://" in target or target.startswith("ms-settings:"):
+            scheme = target.split(":", 1)[0].lower()
+            if scheme not in allowed_schemes:
+                return {
+                    "success": False,
+                    "app": app_name,
+                    "target": target,
+                    "error": f"URI scheme '{scheme}' is not in the approved safety allowlist.",
+                }
+            try:
                 os.startfile(target)  # type: ignore[attr-defined]
                 return {
                     "success": True,
@@ -474,46 +488,51 @@ class JarvisSystem:
                     "target": target,
                     "message": f"Opened Windows URI '{target}'.",
                 }
-
-            # If executable is on PATH or absolute: launch directly without shell=True
-            cmd = [target] if isinstance(target, str) else list(target)
-            try:
-                subprocess.Popen(
-                    cmd,
-                    shell=False,
-                    creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if hasattr(subprocess, "CREATE_NEW_PROCESS_GROUP") else 0,
-                )
-                return {
-                    "success": True,
-                    "app": app_name,
-                    "target": target,
-                    "message": f"Application '{app_name}' launched successfully.",
-                }
-            except (FileNotFoundError, OSError):
-                # Fallback to os.startfile for Windows registered app names / file associations
-                os.startfile(target)  # type: ignore[attr-defined]
-                return {
-                    "success": True,
-                    "app": app_name,
-                    "target": target,
-                    "message": f"Application '{app_name}' launched via startfile.",
-                }
-        except Exception as err:
-            # Fallback to os.startfile
-            try:
-                os.startfile(target)  # type: ignore[attr-defined]
-                return {
-                    "success": True,
-                    "app": app_name,
-                    "target": target,
-                    "message": f"Application '{app_name}' launched via startfile.",
-                }
-            except Exception as inner_err:
+            except Exception as uri_err:
                 return {
                     "success": False,
                     "app": app_name,
-                    "error": f"Failed to open '{app_name}': {inner_err}",
+                    "target": target,
+                    "error": f"Failed to open URI '{target}': {uri_err}",
                 }
+
+        # Executable target: launch directly via Popen without shell=True, fallback once to os.startfile
+        cmd = [target] if isinstance(target, str) else list(target)
+        try:
+            subprocess.Popen(
+                cmd,
+                shell=False,
+                creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if hasattr(subprocess, "CREATE_NEW_PROCESS_GROUP") else 0,
+            )
+            return {
+                "success": True,
+                "app": app_name,
+                "target": target,
+                "message": f"Application '{app_name}' launched successfully.",
+            }
+        except (FileNotFoundError, OSError):
+            try:
+                os.startfile(target)  # type: ignore[attr-defined]
+                return {
+                    "success": True,
+                    "app": app_name,
+                    "target": target,
+                    "message": f"Application '{app_name}' launched via startfile.",
+                }
+            except Exception as start_err:
+                return {
+                    "success": False,
+                    "app": app_name,
+                    "target": target,
+                    "error": f"Failed to open '{app_name}': {start_err}",
+                }
+        except Exception as err:
+            return {
+                "success": False,
+                "app": app_name,
+                "target": target,
+                "error": f"Error launching '{app_name}': {err}",
+            }
 
     def close_application(self, app_name: str, force: bool = False) -> Dict[str, Any]:
         """Gracefully close applications by sending WM_CLOSE first, falling back to terminate if forced."""
@@ -533,17 +552,17 @@ class JarvisSystem:
                 "error": f"Process '{target_name}' is a protected system process and cannot be terminated.",
             }
 
-        target_pids: List[int] = []
+        target_procs: List[psutil.Process] = []
         try:
             for proc in psutil.process_iter(["pid", "name"]):
                 try:
                     pname = (proc.info.get("name") or "").lower()
                     if pname == target_name:
-                        target_pids.append(proc.info["pid"])
+                        target_procs.append(proc)
                 except (psutil.NoSuchProcess, psutil.AccessDenied):
                     continue
 
-            if not target_pids:
+            if not target_procs:
                 return {
                     "success": True,
                     "app": app_name,
@@ -551,6 +570,8 @@ class JarvisSystem:
                     "killed_count": 0,
                     "message": f"No running processes found for '{target_name}'.",
                 }
+
+            target_pids = {p.pid for p in target_procs}
 
             # 1. Attempt graceful close via WM_CLOSE on top-level windows
             user32 = ctypes.windll.user32
@@ -561,7 +582,14 @@ class JarvisSystem:
                     pid = ctypes.c_ulong()
                     user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
                     if pid.value in target_pids:
-                        user32.PostMessageW(hwnd, WM_CLOSE, 0, 0)
+                        for p in target_procs:
+                            if p.pid == pid.value:
+                                try:
+                                    if p.is_running() and (p.name() or "").lower() == target_name:
+                                        user32.PostMessageW(hwnd, WM_CLOSE, 0, 0)
+                                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                                    pass
+                                break
                 return True
 
             WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
@@ -571,28 +599,38 @@ class JarvisSystem:
             # Wait briefly for graceful exit
             time.sleep(1.2)
 
-            remaining_pids = [pid for pid in target_pids if psutil.pid_exists(pid)]
-            closed_count = len(target_pids) - len(remaining_pids)
+            remaining_procs = []
+            for p in target_procs:
+                try:
+                    if p.is_running() and (p.name() or "").lower() == target_name:
+                        remaining_procs.append(p)
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    pass
+            closed_count = len(target_procs) - len(remaining_procs)
 
-            # 2. If force is requested and some processes remain, terminate them
-            if remaining_pids and force:
-                for pid in remaining_pids:
+            # 2. If force is requested and some processes remain, terminate them using retained process handles
+            if remaining_procs and force:
+                for p in remaining_procs:
                     try:
-                        p = psutil.Process(pid)
                         p.terminate()
                     except (psutil.NoSuchProcess, psutil.AccessDenied):
                         pass
                 time.sleep(0.5)
-                remaining_pids = [pid for pid in remaining_pids if psutil.pid_exists(pid)]
-                closed_count = len(target_pids) - len(remaining_pids)
+                remaining_procs = [p for p in remaining_procs if p.is_running()]
+                closed_count = len(target_procs) - len(remaining_procs)
 
+            success = (len(remaining_procs) == 0)
             return {
-                "success": True,
+                "success": success,
                 "app": app_name,
                 "target": target_name,
                 "closed_count": closed_count,
-                "remaining_count": len(remaining_pids),
-                "message": f"Closed {closed_count} instances of '{target_name}'." + (f" ({len(remaining_pids)} require force close)" if remaining_pids else ""),
+                "remaining_count": len(remaining_procs),
+                "message": (
+                    f"Successfully closed all {closed_count} instances of '{target_name}'."
+                    if success
+                    else f"Closed {closed_count} instances of '{target_name}'; {len(remaining_procs)} instances could not be closed."
+                ),
             }
         except Exception as err:
             return {
@@ -606,7 +644,10 @@ class JarvisSystem:
     # 5. Sleep / Shutdown Controls
     # =========================================================================
 
+    _shutdown_lock: threading.Lock = threading.Lock()
     _shutdown_timer: Optional[threading.Timer] = None
+    _shutdown_pending: bool = False
+    _last_shutdown_result: Optional[Dict[str, Any]] = None
 
     def shutdown_pc(self, delay_seconds: int = 60, restart: bool = False, force: bool = False) -> Dict[str, Any]:
         """Initiate scheduled shutdown or reboot without force-closing unsaved work by default."""
@@ -614,54 +655,87 @@ class JarvisSystem:
         flag = "/r" if restart else "/s"
         action = "Reboot" if restart else "Shutdown"
 
-        if getattr(self, "_shutdown_timer", None):
-            self._shutdown_timer.cancel()
-            self._shutdown_timer = None
+        with self._shutdown_lock:
+            if self._shutdown_timer:
+                self._shutdown_timer.cancel()
+                self._shutdown_timer = None
+                self._shutdown_pending = False
 
-        if delay == 0:
-            cmd = ["shutdown.exe", flag, "/t", "0"]
-            if force:
-                cmd.append("/f")
-            res = subprocess.run(cmd, capture_output=True, text=True)
+            if delay == 0:
+                cmd = ["shutdown.exe", flag, "/t", "0"]
+                if force:
+                    cmd.append("/f")
+                res = subprocess.run(cmd, capture_output=True, text=True)
+                self._last_shutdown_result = {
+                    "returncode": res.returncode,
+                    "stdout": res.stdout,
+                    "stderr": res.stderr,
+                }
+                return {
+                    "success": res.returncode == 0,
+                    "action": action,
+                    "delay_seconds": 0,
+                    "force": force,
+                    "error": res.stderr.strip() if res.returncode != 0 else None,
+                    "message": f"{action} triggered immediately.",
+                }
+
+            self._shutdown_pending = True
+
+            def _execute_scheduled_shutdown():
+                with self._shutdown_lock:
+                    if not self._shutdown_pending:
+                        return
+                    self._shutdown_pending = False
+                    self._shutdown_timer = None
+
+                cmd = ["shutdown.exe", flag, "/t", "0"]
+                if force:
+                    cmd.append("/f")
+                res = subprocess.run(cmd, capture_output=True, text=True)
+                with self._shutdown_lock:
+                    self._last_shutdown_result = {
+                        "returncode": res.returncode,
+                        "stdout": res.stdout,
+                        "stderr": res.stderr,
+                    }
+                    if res.returncode != 0:
+                        logger.error(f"Scheduled {action} failed with code {res.returncode}: {res.stderr}")
+
+            self._shutdown_timer = threading.Timer(delay, _execute_scheduled_shutdown)
+            self._shutdown_timer.daemon = True
+            self._shutdown_timer.start()
+
+            desc = "forced" if force else "graceful, non-forced"
             return {
-                "success": res.returncode == 0,
+                "success": True,
                 "action": action,
-                "delay_seconds": 0,
-                "message": f"{action} triggered immediately.",
+                "delay_seconds": delay,
+                "force": force,
+                "message": f"{action} scheduled in {delay} seconds ({desc}).",
             }
-
-        # Schedule cancellable timer to avoid Windows /t auto-forcing app closure
-        def _execute_scheduled_shutdown():
-            cmd = ["shutdown.exe", flag, "/t", "0"]
-            if force:
-                cmd.append("/f")
-            subprocess.run(cmd, capture_output=True, text=True)
-
-        self._shutdown_timer = threading.Timer(delay, _execute_scheduled_shutdown)
-        self._shutdown_timer.daemon = True
-        self._shutdown_timer.start()
-
-        return {
-            "success": True,
-            "action": action,
-            "delay_seconds": delay,
-            "force": force,
-            "message": f"{action} scheduled in {delay} seconds (graceful, non-forced).",
-        }
 
     def cancel_shutdown(self) -> Dict[str, Any]:
         """Cancel any scheduled shutdown or reboot."""
-        cancelled_timer = False
-        if getattr(self, "_shutdown_timer", None):
-            self._shutdown_timer.cancel()
-            self._shutdown_timer = None
-            cancelled_timer = True
+        cancelled = False
+        with self._shutdown_lock:
+            if self._shutdown_pending and self._shutdown_timer:
+                self._shutdown_timer.cancel()
+                self._shutdown_timer = None
+                self._shutdown_pending = False
+                cancelled = True
 
         cmd = ["shutdown.exe", "/a"]
         res = subprocess.run(cmd, capture_output=True, text=True)
+        success = (res.returncode == 0 or cancelled)
         return {
-            "success": res.returncode == 0 or cancelled_timer,
-            "message": "Scheduled shutdown successfully cancelled.",
+            "success": success,
+            "cancelled_timer": cancelled,
+            "message": (
+                "Scheduled shutdown successfully cancelled."
+                if success
+                else f"No active shutdown to cancel ({res.stderr.strip()})."
+            ),
         }
 
     # =========================================================================
@@ -708,7 +782,7 @@ class JarvisSystem:
         try:
             target = Path(folderpath)
             # If target is a directory symlink or junction, unlink the junction itself without recursion!
-            if target.is_symlink():
+            if target.is_symlink() or (hasattr(target, "is_junction") and target.is_junction()):
                 os.unlink(target)
                 return {
                     "success": True,
@@ -747,10 +821,10 @@ class JarvisSystem:
                         "error": f"Tizim papkasini o'chirish taqiqlangan: '{target_abs}'.",
                     }
 
-            if target_abs in (user_profile, user_root) or user_root == target_abs:
+            if target_abs in (user_profile, user_root) or target_abs in user_profile.parents or target_abs in user_root.parents:
                 return {
                     "success": False,
-                    "error": f"Foydalanuvchi profil ildizini o'chirish taqiqlangan: '{target_abs}'.",
+                    "error": f"Foydalanuvchi profil ildizini yoki uni o'z ichiga olgan papkani o'chirish taqiqlangan: '{target_abs}'.",
                 }
 
             shutil.rmtree(target)
@@ -772,8 +846,7 @@ class JarvisSystem:
             r'\bclear-disk\b', r'\bdiskpart\b', r'\bdrop\b', r'\bwipe\b',
             r'\[System\.IO\.File\]::Delete', r'\[System\.IO\.Directory\]::Delete'
         ]
-        cmd_lower = command.lower()
-        return any(re.search(pat, cmd_lower) for pat in patterns)
+        return any(re.search(pat, command, re.IGNORECASE) for pat in patterns)
 
     # =========================================================================
     # 7. Administrative / PowerShell Execution

@@ -300,9 +300,9 @@ class JarvisDesktop:
         # Press keys down in forward order with failsafe protection and clean release
         pressed_vks = []
         try:
-            self._check_failsafe()
+            self.check_failsafe()
             for vk in vk_codes:
-                self._check_failsafe()
+                self.check_failsafe()
                 user32.keybd_event(vk, 0, 0, 0)
                 pressed_vks.append(vk)
                 time.sleep(0.02)
@@ -318,7 +318,7 @@ class JarvisDesktop:
     def keyboard_type(self, text: str, press_enter: bool = False, delay: float = 0.01) -> Dict[str, Any]:
         """Type Unicode text reliably via SendInput."""
         self._attach_desktop()
-        self._check_failsafe()
+        self.check_failsafe()
         raw_text = str(text)
         if self.RESTRICTED_TYPE_REGEX.search(raw_text):
             logger.warning(f"Restricted text typing rejected by regex: {text[:50]}")
@@ -329,7 +329,7 @@ class JarvisDesktop:
 
         for i, char in enumerate(str(text)):
             if i % 10 == 0:
-                self._check_failsafe()
+                self.check_failsafe()
             scan_code = ord(char)
             # Key down
             inp_down = INPUT()

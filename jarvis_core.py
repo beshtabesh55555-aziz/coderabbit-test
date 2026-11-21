@@ -291,32 +291,52 @@ class JarvisCore:
         pid_file = self.base_dir / ".jarvis_core.pid"
         my_pid = os.getpid()
 
+        import msvcrt
         try:
-            import msvcrt
             self._lock_file = open(lock_file_path, "a+b")
+        except (IOError, OSError) as open_err:
+            logger.error(f"Failed to open instance lock file '{lock_file_path}': {open_err}")
+            raise
+
+        try:
             msvcrt.locking(self._lock_file.fileno(), msvcrt.LK_NBLCK, 1)
         except (IOError, OSError) as e:
-            logger.warning(
-                f"Another instance of JARVIS Core is already running and holds the OS lock ({e}). "
-                "Exiting gracefully to prevent duplicate instance conflicts."
-            )
-            sys.exit(0)
+            import errno
+            if getattr(e, "errno", None) in (errno.EACCES, errno.EDEADLK) or getattr(e, "winerror", None) == 33 or "lock" in str(e).lower():
+                logger.warning(
+                    f"Another instance of JARVIS Core is already running and holds the OS lock ({e}). "
+                    "Exiting gracefully to prevent duplicate instance conflicts."
+                )
+                try:
+                    self._lock_file.close()
+                except Exception:
+                    pass
+                sys.exit(0)
+            else:
+                logger.error(f"Unexpected OS error during lock acquisition: {e}")
+                try:
+                    self._lock_file.close()
+                except Exception:
+                    pass
+                raise
 
         try:
             pid_file.write_text(str(my_pid), encoding="utf-8")
             import atexit
             def _cleanup_lock():
                 try:
+                    if pid_file.exists():
+                        pid_file.unlink(missing_ok=True)
+                finally:
                     if hasattr(self, "_lock_file") and self._lock_file:
                         try:
                             msvcrt.locking(self._lock_file.fileno(), msvcrt.LK_UNLCK, 1)
                         except Exception:
                             pass
-                        self._lock_file.close()
-                    if pid_file.exists():
-                        pid_file.unlink(missing_ok=True)
-                except Exception:
-                    pass
+                        try:
+                            self._lock_file.close()
+                        except Exception:
+                            pass
             atexit.register(_cleanup_lock)
             logger.info(f"Single instance OS lock acquired (PID: {my_pid}).")
         except Exception as e:
@@ -444,7 +464,7 @@ class JarvisCore:
         if at_match:
             target = at_match.group(1)
             after_target = q_clean[at_match.end():]
-            after_target = re.sub(r"^\s*[\)\],]?\s*(?:nikiga\s+ega\s+)?(?:tanishim|do[\'’`]?stim|hamkasbim|birodarim|og[\'’`]?aynim)?(?:ga|ka|qa)?\s*", "", after_target, flags=re.IGNORECASE)
+            after_target = re.sub(r"^\s*[\)\],]?\s*(?:nikiga\s+ega\s+)?(?:tanishim|do[\'’`]?stim|hamkasbim|birodarim|og[\'’`]?aynim)?(?:\s*\b(?:ga|ka|qa)\b)?\s*", "", after_target, flags=re.IGNORECASE)
             
             # Require explicit send instruction: "deb yoz/yubor" OR "xabar yoz/yubor: msg"
             m_msg = re.search(deb_pattern, after_target, re.IGNORECASE)
@@ -474,7 +494,7 @@ class JarvisCore:
                         return t.strip(), msg.strip()
 
         # 3. Check for name + xabar yoz: msg (Require explicit 'xabar yoz' or 'yoz:' / 'yubor:')
-        m2 = re.search(r"(\b[a-zA-Z0-9_\'’`]+?)(?:ga|ka|qa)?\s+(?:(?:xabar\s+)(?:yoz|yubor|jo[\'’`]?nat|jonat)|(?:yoz|yubor|jo[\'’`]?nat|jonat)[\s:]+)[\s:]*(.+)", q_clean, re.IGNORECASE)
+        m2 = re.search(r"(\b[a-zA-Z0-9_\'’`]+?)(?:ga|ka|qa)?\s+(?:(?:xabar\s+)?\b(?:yoz|yubor|jo[\'’`]?nat|jonat)\b[\s:]+)[\s:]*(.+)", q_clean, re.IGNORECASE)
         if m2:
             target = m2.group(1).strip()
             msg = m2.group(2).strip()
@@ -674,27 +694,39 @@ class JarvisCore:
             return None
 
         # 1. Check if this is a Chat-to-Chat Media Transfer (parse source chat first)
-        is_chat_transfer = any(w in q for w in ["botdagi", "botdan", "kanaldagi", "kanaldan", "chatdagi", "chatdan", "vkm", "vkmusic", "saved messages"])
+        is_chat_transfer = any(w in q for w in ["botdagi", "botdan", "kanaldagi", "kanaldan", "chatdagi", "chatdan", "vkm", "vkmusic", "saved messages", "saqlangan"])
         source_chat = None
         if is_chat_transfer:
-            if any(w in q for w in ["vkm", "vkmusic"]):
-                source_chat = "@vkmusic_bot"
+            m_src = re.search(r'(@?[a-zA-Z0-9_]+?)\s*(?:botdagi|botdan|kanaldagi|kanaldan|chatdagi|chatdan)', raw_q, re.IGNORECASE)
+            if m_src:
+                src_tok = m_src.group(1).strip()
+                if src_tok.lower() in ["vkm", "vkmusic", "@vkm", "@vkmusic"]:
+                    source_chat = "@vkmusic_bot"
+                elif src_tok.lower() in ["me", "saved"]:
+                    source_chat = "me"
+                else:
+                    source_chat = src_tok
             elif "saved messages" in q or "saqlangan" in q:
                 source_chat = "me"
-            else:
-                m_src = re.search(r'(@?[a-zA-Z0-9_]+?)\s*(?:botdagi|botdan|kanaldagi|kanaldan|chatdagi|chatdan)', raw_q, re.IGNORECASE)
-                if m_src:
-                    source_chat = m_src.group(1).strip()
+            elif any(re.search(r'\b' + pat + r'\b', q) for pat in ["vkm", "vkmusic"]):
+                source_chat = "@vkmusic_bot"
             if not source_chat:
                 source_chat = "@vkmusic_bot" if ("qo'shiq" in q or "musiqa" in q) else "me"
 
         # 2. Extract destination recipient (distinct from source_chat)
         target = None
-        m_dest = re.search(r'(@?[a-zA-Z0-9_\'’`]+?)(?:ga|ka|qa)\b', raw_q, re.IGNORECASE)
-        if m_dest:
-            cand = m_dest.group(1).strip()
-            if cand.lower() not in ["telegram", "bot", "monika", "fayl"] and (not source_chat or cand.lower() != source_chat.lower()):
-                target = cand
+        m_handle_dest = re.search(r'(@[a-zA-Z0-9_]{3,})(?:(?:\s+)?(?:ga|ka|qa)\b)?', raw_q, re.IGNORECASE)
+        if m_handle_dest:
+            h_cand = m_handle_dest.group(1).strip()
+            if not source_chat or h_cand.lower() != source_chat.lower():
+                target = h_cand
+
+        if not target:
+            m_dest = re.search(r'\b([a-zA-Z0-9_\'’`]+?)(?:ga|ka|qa)\b', raw_q, re.IGNORECASE)
+            if m_dest:
+                cand = m_dest.group(1).strip()
+                if cand.lower() not in ["telegram", "bot", "monika", "fayl"] and (not source_chat or cand.lower() != source_chat.lower()):
+                    target = cand
 
         if not target:
             all_handles = re.findall(r'(@[a-zA-Z0-9_]{3,})', raw_q)
@@ -870,28 +902,33 @@ class JarvisCore:
                 self.speak(text_to_speak)
 
         # Sensitive Data Exposure Gate (CWE-532 / CWE-200):
-        # Route credential submissions through dedicated local handler before logging, recording, or tracing
-        is_pin_submission = (
-            any(q.startswith(w) for w in ["parol ", "kod ", "pin ", "parol:", "kod:", "pin:"])
-            or ("parol" in q and any(ch.isdigit() for ch in q))
-            or ("kod" in q and any(ch.isdigit() for ch in q))
-        )
-        if is_pin_submission:
+        # Route actual credential submissions through dedicated local handler before logging, recording, or tracing
+        m_pin = re.search(r'\b(?:parol|kod|pin|parolim|kodim)\s*[:=]?\s*([a-zA-Z0-9!@#\$%\^&*_\-]{3,})', raw_query, re.IGNORECASE)
+        pin_val = m_pin.group(1).strip() if m_pin else None
+        if pin_val and pin_val.lower() in ["kirit", "kiritish", "sorash", "so'rash", "ochish", "bilan", "nima", "qanday"]:
+            pin_val = None
+
+        if pin_val:
             logger.info(f"Processing command: '[REDACTED CREDENTIAL SUBMISSION]' (speak_output={speak_output}, user_id={uid})")
             if hasattr(self, "dialogue_manager") and self.dialogue_manager:
                 self.dialogue_manager.append_chat_message(uid, "user", "[REDACTED CREDENTIAL SUBMISSION]")
             trace_ctx = self.tracer.start_trace("[REDACTED CREDENTIAL SUBMISSION]", source="voice" if speak_output else "telegram")
 
-            # Extract PIN matching case-insensitively on raw_query to preserve exact credential casing!
-            m_pin = re.search(r'(?:parol|kod|pin|parolim|kodim)?\s*[:=]?\s*([a-zA-Z0-9!@#\$%\^&*_\-]+)', raw_query, re.IGNORECASE)
-            if not m_pin:
-                reply = "Kechirasiz, kiritilgan kod yoki parolni aniqlab bo'lmadi."
-                self.tracer.complete_trace(trace_ctx, reply, status="error")
+            # Verify workstation is currently locked before sending keystrokes
+            is_currently_locked = True
+            if hasattr(self, "sensor") and self.sensor:
+                is_currently_locked = self.sensor.is_workstation_locked()
+            elif hasattr(self, "system") and self.system:
+                st = self.system.get_lock_status()
+                is_currently_locked = st.get("is_locked", True)
+
+            if is_currently_locked is False:
+                reply = "Kompyuter allaqachon qulfdan chiqarilgan va faol."
+                self.tracer.complete_trace(trace_ctx, reply, status="success")
             elif not (hasattr(self, "sensor") and self.sensor) and not (hasattr(self, "desktop") and self.desktop):
                 reply = "Kechirasiz, klaviatura yoki sensor vositasi mavjud emas, PIN kiritib bo'lmadi."
                 self.tracer.complete_trace(trace_ctx, reply, status="error")
             else:
-                pin_val = m_pin.group(1).strip()
                 if hasattr(self, "sensor") and self.sensor:
                     self.sensor.unlock_with_pin(pin_val)
                 elif hasattr(self, "desktop") and self.desktop:
@@ -899,14 +936,14 @@ class JarvisCore:
 
                 time.sleep(1.0)
                 # Verify actual physical unlock state
-                is_locked = True
+                final_locked = True
                 if hasattr(self, "sensor") and self.sensor:
-                    is_locked = self.sensor.is_workstation_locked()
+                    final_locked = self.sensor.is_workstation_locked()
                 elif hasattr(self, "system") and self.system:
                     st = self.system.get_lock_status()
-                    is_locked = st.get("is_locked", True)
+                    final_locked = st.get("is_locked", True)
 
-                if is_locked is False:
+                if final_locked is False:
                     reply = "PIN muvaffaqiyatli kiritildi va kompyuter qulfdan chiqarildi."
                     self.tracer.complete_trace(trace_ctx, reply, status="success")
                 else:
@@ -1094,7 +1131,12 @@ class JarvisCore:
 
             if target_raw and target_raw.lower() not in ["faylni", "papkani", "papkasini", "ovozni", "kompyuterni", "dasturni"]:
                 p = Path(target_raw)
-                resolved = p if p.is_absolute() else (self.base_dir / target_raw).resolve()
+                if p.is_absolute():
+                    resolved = p
+                else:
+                    # Resolve parent directory to eliminate traversal ('..', '.'), while preserving the final component for symlink/junction checks
+                    target_path = self.base_dir / p
+                    resolved = target_path.parent.resolve() / target_path.name
 
                 if is_folder:
                     desc = f"'{target_raw}' papkasini o'chirish"
@@ -1165,6 +1207,7 @@ class JarvisCore:
             tools = self.tool_registry.get_gemini_tools()
 
             for m_name in candidate_models:
+                executed_tools = []
                 try:
                     import google.generativeai as genai
                     m = genai.GenerativeModel(m_name, tools=tools)
@@ -1173,7 +1216,6 @@ class JarvisCore:
 
                     response = chat.send_message(full_prompt, request_options={"timeout": 30})
 
-                    executed_tools = []
                     max_fc_turns = 3
                     fc_turn = 0
 
@@ -1195,8 +1237,19 @@ class JarvisCore:
                             logger.info(f"Executing Tool Call: {fn_name}({fn_args})")
 
                             tool_result = self.tool_registry.dispatch(fn_name, **fn_args)
-                            v_record = self.tracer.verify_tool_execution(fn_name, fn_args, tool_result, sensor=getattr(self, "sensor", None))
-                            executed_tools.append((fn_name, fn_args, tool_result, v_record))
+                            # Record dispatch immediately before verification to prevent duplicate side effects on error
+                            tool_idx = len(executed_tools)
+                            executed_tools.append((fn_name, fn_args, tool_result, None))
+
+                            v_record = None
+                            try:
+                                v_record = self.tracer.verify_tool_execution(fn_name, fn_args, tool_result, sensor=getattr(self, "sensor", None))
+                                executed_tools[tool_idx] = (fn_name, fn_args, tool_result, v_record)
+                            except Exception as v_err:
+                                logger.warning(f"Verification raised error for {fn_name}: {v_err}")
+                                v_record = {"verified": False, "verified_success": False, "reason": f"Verification error: {v_err}"}
+                                executed_tools[tool_idx] = (fn_name, fn_args, tool_result, v_record)
+
                             trace_ctx["tools_called"].append({"tool": fn_name, "args": fn_args, "result": tool_result, "verification": v_record})
 
                             # Anti-Hallucination Safety Gate: If tool requires human confirmation, return prompt immediately
@@ -1252,6 +1305,23 @@ class JarvisCore:
                             self.tracer.complete_trace(trace_ctx, final_reply, status="success")
                             _speak_if_allowed(final_reply)
                             return final_reply
+
+                    # Check if Gemini exited loop with unhandled pending tool calls at the limit
+                    pending_fcs = []
+                    if response and response.candidates and response.candidates[0].content:
+                        for part in response.candidates[0].content.parts:
+                            if hasattr(part, "function_call") and part.function_call:
+                                pending_fcs.append(part.function_call.name)
+
+                    if pending_fcs:
+                        logger.warning(f"Tool round limit reached with pending tool calls: {pending_fcs}")
+                        completed_names = [fn for fn, _, _, _ in executed_tools]
+                        completed_str = ", ".join(completed_names) if completed_names else "hech biri"
+                        pending_str = ", ".join(pending_fcs)
+                        incomplete_reply = f"Amallar qisman bajarildi ({completed_str}). Biroq limit sababli quyidagilar bajarilmadi: {pending_str}."
+                        self.tracer.complete_trace(trace_ctx, incomplete_reply, status="partially_completed")
+                        _speak_if_allowed(incomplete_reply)
+                        return incomplete_reply
 
                     if response and hasattr(response, "text") and response.text:
                         final_reply = response.text.strip()
@@ -1578,7 +1648,9 @@ class JarvisCore:
             return reply
 
         # 10.1 Telegram Saved Messages & Notes Fast-Path
-        if any(w in q for w in ["saqlangan xabarlar", "saved messages", "eslatmalarim", "qaydlarim", "telegramdagi qayd", "saqlangan xabar"]):
+        # Let explicit media transfers (e.g. "saved messages dan @user ga video yubor") reach _handle_telegram_file_send
+        has_transfer_intent = any(w in q for w in ["jo'nat", "jonat", "yubor", "tashla", "yetkaz", "send", "uzat"]) and ("@" in q or bool(re.search(r'\b(?:ga|ka|qa)\b', q)))
+        if not has_transfer_intent and any(w in q for w in ["saqlangan xabarlar", "saved messages", "eslatmalarim", "qaydlarim", "telegramdagi qayd", "saqlangan xabar"]):
             from jarvis_omni_indexer import TelegramOmniIndexer
             kw_match = re.search(r'(?:saqlangan\s+xabarlar(?:dan|imdan)?|saved\s+messages(?:dan)?)\s+(?:haqida\s+)?(.+)', q)
             search_term = ""
@@ -1788,13 +1860,18 @@ class JarvisCore:
 
         # 12. Mouse Cursor Movement & Clicks
         if any(w in q for w in ["sichqonchani siljit", "kursorni siljit"]):
-            m_coords = re.search(r'(\d+)\s*(?:ga|x|va|,)\s*(\d+)', q)
-            if m_coords and self.desktop:
-                mx, my = int(m_coords.group(1)), int(m_coords.group(2))
-                res = self.desktop.mouse_move(mx, my, smooth=True)
-                actual_x = res.get("x", mx) if isinstance(res, dict) else mx
-                actual_y = res.get("y", my) if isinstance(res, dict) else my
-                reply = f"Sichqoncha kursorini ({actual_x}, {actual_y}) koordinatasiga siljitdim."
+            if not self.desktop:
+                reply = "Desktop moduli faol emas."
+            else:
+                m_coords = re.search(r'(\d+)\s*(?:ga|x|va|,)\s*(\d+)', q)
+                if m_coords:
+                    mx, my = int(m_coords.group(1)), int(m_coords.group(2))
+                    res = self.desktop.mouse_move(mx, my, smooth=True)
+                    actual_x = res.get("x", mx) if isinstance(res, dict) else mx
+                    actual_y = res.get("y", my) if isinstance(res, dict) else my
+                    reply = f"Sichqoncha kursorini ({actual_x}, {actual_y}) koordinatasiga siljitdim."
+                else:
+                    reply = "Iltimos, kursor koordinatasini ko'rsating (masalan: 'kursorni 500x300 ga siljit')."
             _speak_if_allowed(reply)
             return reply
 
@@ -2045,6 +2122,16 @@ class JarvisCore:
             logger.info("Stopping JARVIS...")
             self.stop()
 
+    @staticmethod
+    def _redact_voice_transcript(text: str) -> str:
+        """Redact potential PIN or credential submissions from voice logs."""
+        m = re.search(r'\b(?:parol|kod|pin|parolim|kodim)\s*[:=]?\s*([a-zA-Z0-9!@#\$%\^&*_\-]{3,})', text, re.IGNORECASE)
+        if m:
+            val = m.group(1).strip()
+            if val.lower() not in ["kirit", "kiritish", "sorash", "so'rash", "ochish", "bilan", "nima", "qanday"]:
+                return re.sub(re.escape(val), "[REDACTED]", text, count=1)
+        return text
+
     def _voice_loop(self):
         """Continuous background listening loop with strict wake-word gating and active window."""
         logger.info(f"🎙️ Voice listener loop active. Strict Wake Words: {config.WAKE_WORDS}")
@@ -2061,7 +2148,7 @@ class JarvisCore:
 
                     # 1. STOP command check at any time
                     if any(w in lower_text for w in ["to'xta", "toxta", "stop", "jim", "bas", "bo'ldi", "boldi", "gapirma"]):
-                        logger.info(f"🛑 STOP command detected: '{heard_text}'")
+                        logger.info("🛑 STOP voice command detected.")
                         if self.voice:
                             self.voice.stop_speaking()
                         active_window_until = 0.0
@@ -2072,7 +2159,8 @@ class JarvisCore:
                     is_wake = any(w in lower_text for w in config.WAKE_WORDS)
 
                     if is_wake:
-                        logger.info(f"✨ Wake word recognized: '{heard_text}'")
+                        redacted = self._redact_voice_transcript(heard_text)
+                        logger.info(f"✨ Wake word recognized: '{redacted}'")
                         cmd_text = lower_text
                         for w in config.WAKE_WORDS:
                             cmd_text = cmd_text.replace(w, "").strip()
@@ -2084,11 +2172,13 @@ class JarvisCore:
                             active_window_until = now + 7.0
                             self.process_command(cmd_text)
                     elif now < active_window_until:
-                        logger.info(f"💬 Active window speech: '{heard_text}'")
+                        redacted = self._redact_voice_transcript(heard_text)
+                        logger.info(f"💬 Active window speech: '{redacted}'")
                         active_window_until = now + 7.0
                         self.process_command(heard_text)
                     else:
-                        logger.debug(f"[VOICE IGNORED - NO WAKE WORD]: '{heard_text}'")
+                        redacted = self._redact_voice_transcript(heard_text)
+                        logger.debug(f"[VOICE IGNORED - NO WAKE WORD]: '{redacted}'")
             except Exception as e:
                 logger.error(f"Voice loop error: {e}")
                 time.sleep(0.5)
@@ -2130,8 +2220,16 @@ class JarvisCore:
                     attempt += 1
                     client = get_client()
                     await client.connect()
+                    if not self.is_running:
+                        await client.disconnect()
+                        break
+
                     if not await client.is_user_authorized():
                         logger.warning("Telethon client not authorized. Concierge listener cannot start.")
+                        await client.disconnect()
+                        break
+
+                    if not self.is_running:
                         await client.disconnect()
                         break
 
@@ -2200,10 +2298,12 @@ class JarvisCore:
             self._stop_event.set()
 
         # Disconnect concierge listener and client cleanly
-        if hasattr(self, "_concierge_client") and self._concierge_client:
+        if hasattr(self, "_concierge_loop") and self._concierge_loop and self._concierge_loop.is_running():
             try:
-                if hasattr(self, "_concierge_loop") and self._concierge_loop and self._concierge_loop.is_running():
+                if hasattr(self, "_concierge_client") and self._concierge_client:
                     asyncio.run_coroutine_threadsafe(self._concierge_client.disconnect(), self._concierge_loop)
+                for task in asyncio.all_tasks(self._concierge_loop):
+                    self._concierge_loop.call_soon_threadsafe(task.cancel)
             except Exception:
                 pass
 
