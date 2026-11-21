@@ -72,6 +72,7 @@ class JarvisCore:
         self.dialogue_manager = get_dialogue_manager()
         self._clarification_dispatched_via_tg = False
         self.is_running = False
+        self._stop_event = threading.Event()
         self.concierge = None
         self._command_lock = threading.RLock()
 
@@ -285,39 +286,39 @@ class JarvisCore:
     # =========================================================================
 
     def _acquire_single_instance_lock(self):
-        """Enforce strict single instance execution across the entire OS.
-        Scans all running processes and terminates ANY other jarvis_core.py process."""
+        """Enforce strict single instance execution using an OS-level file lock without terminating other processes."""
+        lock_file_path = self.base_dir / ".jarvis_core.lock"
         pid_file = self.base_dir / ".jarvis_core.pid"
         my_pid = os.getpid()
-        my_ppid = os.getppid()
 
-        # 1. Full OS process scan: Kill ANY existing process running jarvis_core.py
-        for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
-            if proc.pid == my_pid or proc.pid == my_ppid:
-                continue
-            try:
-                cmdline = " ".join(proc.info.get('cmdline') or []).lower()
-                if "jarvis_core.py" in cmdline:
-                    logger.warning(f"Terminating duplicate/orphaned jarvis_core instance (PID {proc.pid})...")
-                    proc.kill()
-                    try:
-                        proc.wait(timeout=2)
-                    except Exception:
-                        pass
-            except (psutil.NoSuchProcess, psutil.AccessDenied):
-                continue
+        try:
+            import msvcrt
+            self._lock_file = open(lock_file_path, "a+b")
+            msvcrt.locking(self._lock_file.fileno(), msvcrt.LK_NBLCK, 1)
+        except (IOError, OSError) as e:
+            logger.warning(
+                f"Another instance of JARVIS Core is already running and holds the OS lock ({e}). "
+                "Exiting gracefully to prevent duplicate instance conflicts."
+            )
+            sys.exit(0)
 
         try:
             pid_file.write_text(str(my_pid), encoding="utf-8")
             import atexit
-            def _cleanup_pid():
+            def _cleanup_lock():
                 try:
-                    if pid_file.exists() and pid_file.read_text(encoding="utf-8").strip() == str(my_pid):
+                    if hasattr(self, "_lock_file") and self._lock_file:
+                        try:
+                            msvcrt.locking(self._lock_file.fileno(), msvcrt.LK_UNLCK, 1)
+                        except Exception:
+                            pass
+                        self._lock_file.close()
+                    if pid_file.exists():
                         pid_file.unlink(missing_ok=True)
                 except Exception:
                     pass
-            atexit.register(_cleanup_pid)
-            logger.info(f"Single instance lock acquired (PID: {my_pid}).")
+            atexit.register(_cleanup_lock)
+            logger.info(f"Single instance OS lock acquired (PID: {my_pid}).")
         except Exception as e:
             logger.error(f"Failed to write PID lock file: {e}")
 
@@ -346,9 +347,9 @@ class JarvisCore:
     # =========================================================================
 
     def _heartbeat_loop(self):
-        """Continuously write heartbeat.json every 5 seconds using atomic file replace."""
+        """Continuously write heartbeat.json every 5 seconds using atomic file replace until stopped."""
         logger.info(f"Watchdog heartbeat monitor started ({self.heartbeat_file}).")
-        while True:
+        while not self._stop_event.is_set():
             try:
                 sec_status = self.system.get_security_status() if self.system else "Unknown"
                 sec_mode = self.telegram.get_security_mode() if self.telegram else "UNKNOWN"
@@ -375,7 +376,7 @@ class JarvisCore:
                 tmp_file.replace(self.heartbeat_file)
             except Exception as e:
                 logger.error(f"Error updating heartbeat: {e}")
-            time.sleep(5)
+            self._stop_event.wait(5.0)
 
     def speak(self, text: str):
         """Speak out text via Voice Engine."""
@@ -435,15 +436,6 @@ class JarvisCore:
         q_norm = q_norm.replace("ó", "o'").replace("o‘", "o'").replace("o’", "o'").replace("o`", "o'")
         q_norm = q_norm.replace("gʻ", "g'").replace("g’", "g'").replace("g‘", "g'").replace("g`", "g'")
 
-        # Intent Guard: If this is any media/file transfer request, DO NOT parse as a plain text message!
-        media_keywords = [
-            "fayl", "faylini", "faylni", "hujjat", "kitob", "doc", "docx", "pdf", "zip", "rar",
-            "rasm", "surat", "foto", "musiqa", "qo'shiq", "audio", "mp3", "video", "klip", "media",
-            "skrinshot", "screenshot", "ekran", "uni", "buni", "o'shani"
-        ]
-        if any(w in q_norm for w in media_keywords):
-            return None, None
-
         q_clean = re.sub(r'^(?:monika|monica|jarvis|hey\s+monika|salom\s+monika|iltimos|yana\s+bir\s+marta)\b\s*', '', raw_q, flags=re.IGNORECASE)
         deb_pattern = r'["\']?(.+?)["\']?\s+deb\s+(?:yoz|yubor|jo[\'’`]?nat|jonat|ayt|yo\b)'
 
@@ -452,13 +444,18 @@ class JarvisCore:
         if at_match:
             target = at_match.group(1)
             after_target = q_clean[at_match.end():]
-            after_target = re.sub(r"^\s*[\)\],]?\s*(?:nikiga\s+ega\s+)?(?:tanishim|do['’`]?stim|hamkasbim|birodarim|og['’`]?aynim)?(?:ga|ka|qa)?\s*", "", after_target, flags=re.IGNORECASE)
+            after_target = re.sub(r"^\s*[\)\],]?\s*(?:nikiga\s+ega\s+)?(?:tanishim|do[\'’`]?stim|hamkasbim|birodarim|og[\'’`]?aynim)?(?:ga|ka|qa)?\s*", "", after_target, flags=re.IGNORECASE)
+            
+            # Require explicit send instruction: "deb yoz/yubor" OR "xabar yoz/yubor: msg"
             m_msg = re.search(deb_pattern, after_target, re.IGNORECASE)
             if m_msg:
                 msg = m_msg.group(1).strip()
             else:
-                m_msg2 = re.search(r'(?:(?:xabar\s+)?(?:yoz|yubor|jo[\'’`]?nat|jonat)[\s:]+)?(.+)', after_target, re.IGNORECASE)
-                msg = m_msg2.group(1).strip() if m_msg2 else after_target.strip()
+                m_msg2 = re.search(r'(?:(?:xabar\s+)?(?:yoz|yubor|jo[\'’`]?nat|jonat)[\s:]+)(.+)', after_target, re.IGNORECASE)
+                if m_msg2:
+                    msg = m_msg2.group(1).strip()
+                else:
+                    return None, None
             
             # Normalize message to verify it's not a leftover verb or artifact
             msg_norm = msg.lower().replace("ó", "o'").replace("o‘", "o'").replace("o’", "o'").replace("o`", "o'").strip()
@@ -476,8 +473,8 @@ class JarvisCore:
                     if msg_norm not in ["yoz", "yubor", "jo'nat", "jonat", "tashla", "deb", ""]:
                         return t.strip(), msg.strip()
 
-        # 3. Check for name + xabar yoz: msg
-        m2 = re.search(r"(\b[a-zA-Z0-9_\'’`]+?)(?:ga|ka|qa)?\s+(?:xabar\s+)?(?:yoz|yubor|jo[\'’`]?nat|jonat)[\s:]+(.+)", q_clean, re.IGNORECASE)
+        # 3. Check for name + xabar yoz: msg (Require explicit 'xabar yoz' or 'yoz:' / 'yubor:')
+        m2 = re.search(r"(\b[a-zA-Z0-9_\'’`]+?)(?:ga|ka|qa)?\s+(?:(?:xabar\s+)(?:yoz|yubor|jo[\'’`]?nat|jonat)|(?:yoz|yubor|jo[\'’`]?nat|jonat)[\s:]+)[\s:]*(.+)", q_clean, re.IGNORECASE)
         if m2:
             target = m2.group(1).strip()
             msg = m2.group(2).strip()
@@ -513,14 +510,15 @@ class JarvisCore:
             return "Kechirasiz, faol aniqlashtirish so'rovi topilmadi yoki muddati o'tgan."
         if resolved.get("status") == "cancelled":
             return "Tushunarli, so'rov bekor qilindi."
-        return self._execute_resolved_clarification(resolved, speak_output=False)
+        return self._execute_resolved_clarification(resolved, speak_output=False, user_id=uid)
 
-    def _execute_resolved_clarification(self, resolved: Dict[str, Any], speak_output: bool = True) -> str:
+    def _execute_resolved_clarification(self, resolved: Dict[str, Any], speak_output: bool = True, user_id: Optional[str] = None) -> str:
         """Execute the resolved action after user disambiguation."""
         action = resolved.get("action", "")
         intent = resolved.get("intent", "")
         kwargs = resolved.get("kwargs", {})
         metric = kwargs.get("metric") or resolved.get("metric", "")
+        target_uid = user_id or resolved.get("user_id")
 
         # 1. Storage Metric Resolution (RAM vs Disk vs Both)
         if intent == "INQUIRE_STORAGE" or action == "get_system_status":
@@ -584,7 +582,7 @@ class JarvisCore:
         # 4. Anaphoric / Last File Dispatch Resolution
         elif intent == "FORWARD_LAST_FILE" or action == "send_last_file":
             recipient = kwargs.get("recipient") or resolved.get("recipient")
-            target_file = self.get_last_active_file(user_id)
+            target_file = self.get_last_active_file(target_uid)
             if not target_file or not os.path.exists(target_file):
                 return "Kechirasiz, yuborish uchun oldingi fayl yoki skrinshot topilmadi."
             if not recipient:
@@ -675,16 +673,41 @@ class JarvisCore:
         if not (has_media_kw and has_send_verb and has_tg_target):
             return None
 
-        # 1. Extract recipient
+        # 1. Check if this is a Chat-to-Chat Media Transfer (parse source chat first)
+        is_chat_transfer = any(w in q for w in ["botdagi", "botdan", "kanaldagi", "kanaldan", "chatdagi", "chatdan", "vkm", "vkmusic", "saved messages"])
+        source_chat = None
+        if is_chat_transfer:
+            if any(w in q for w in ["vkm", "vkmusic"]):
+                source_chat = "@vkmusic_bot"
+            elif "saved messages" in q or "saqlangan" in q:
+                source_chat = "me"
+            else:
+                m_src = re.search(r'(@?[a-zA-Z0-9_]+?)\s*(?:botdagi|botdan|kanaldagi|kanaldan|chatdagi|chatdan)', raw_q, re.IGNORECASE)
+                if m_src:
+                    source_chat = m_src.group(1).strip()
+            if not source_chat:
+                source_chat = "@vkmusic_bot" if ("qo'shiq" in q or "musiqa" in q) else "me"
+
+        # 2. Extract destination recipient (distinct from source_chat)
         target = None
-        at_m = re.search(r'(@[a-zA-Z0-9_]{3,})', raw_q)
-        if at_m:
-            target = at_m.group(1).strip()
-        else:
-            m_target = re.search(r'(?:telegramda\s+)?([a-zA-Z0-9_\'`]+?)(?:ga|ka|qa)\s+(?:fayl\w*|musiqa\w*|qo\'shiq\w*|video\w*|rasm\w*)?\s*(?:jo[\'’`]?nat|jonat|yubor|tashla)', q, re.IGNORECASE)
+        m_dest = re.search(r'(@?[a-zA-Z0-9_\'’`]+?)(?:ga|ka|qa)\b', raw_q, re.IGNORECASE)
+        if m_dest:
+            cand = m_dest.group(1).strip()
+            if cand.lower() not in ["telegram", "bot", "monika", "fayl"] and (not source_chat or cand.lower() != source_chat.lower()):
+                target = cand
+
+        if not target:
+            all_handles = re.findall(r'(@[a-zA-Z0-9_]{3,})', raw_q)
+            for h in all_handles:
+                if not source_chat or h.lower() != source_chat.lower():
+                    target = h
+                    break
+
+        if not target:
+            m_target = re.search(r'(?:telegramda\s+)?([a-zA-Z0-9_\'’`]+?)(?:ga|ka|qa)\s+(?:fayl\w*|musiqa\w*|qo[\'’`]?shiq\w*|video\w*|rasm\w*)?\s*(?:jo[\'’`]?nat|jonat|yubor|tashla)', q, re.IGNORECASE)
             if m_target:
                 cand = m_target.group(1).strip()
-                if cand.lower() not in ["telegram", "bot", "monika", "fayl"]:
+                if cand.lower() not in ["telegram", "bot", "monika", "fayl"] and (not source_chat or cand.lower() != source_chat.lower()):
                     target = cand
 
         if not target:
@@ -698,22 +721,7 @@ class JarvisCore:
         if target.lower() in known_aliases:
             target = known_aliases[target.lower()]
 
-        # 2. Check if this is a Chat-to-Chat Media Transfer (e.g. from VKM bot, channel, saved messages)
-        is_chat_transfer = any(w in q for w in ["botdagi", "botdan", "kanaldagi", "kanaldan", "chatdagi", "chatdan", "vkm", "vkmusic", "saved messages"])
         if is_chat_transfer:
-            source_chat = None
-            if any(w in q for w in ["vkm", "vkmusic"]):
-                source_chat = "@vkmusic_bot"
-            elif "saved messages" in q or "saqlangan" in q:
-                source_chat = "me"
-            else:
-                m_src = re.search(r'([a-zA-Z0-9_@]+?)\s*(?:botdagi|botdan|kanaldagi|kanaldan|chatdagi|chatdan)', q, re.IGNORECASE)
-                if m_src:
-                    source_chat = m_src.group(1).strip()
-
-            if not source_chat:
-                source_chat = "@vkmusic_bot" if ("qo'shiq" in q or "musiqa" in q) else "me"
-
             if any(w in q for w in ["qo'shiq", "musiqa", "audio", "mp3"]):
                 m_type = "audio"
                 m_label = "🎵 Qo'shiq (Musiqa)"
@@ -850,9 +858,64 @@ class JarvisCore:
             user_id: Chat ID or identifier of user (for stateful dialogue tracking).
         """
         q = (query or "").lower().strip()
+        raw_query = (query or "").strip()
         uid = str(user_id or getattr(config, "TELEGRAM_ADMIN_CHAT_ID", None) or "7710339509")
         self._clarification_dispatched_via_tg = False
         self._media_dispatched_via_tg = False
+
+        def _speak_if_allowed(text_to_speak: str):
+            if hasattr(self, "dialogue_manager") and self.dialogue_manager and text_to_speak:
+                self.dialogue_manager.append_chat_message(uid, "assistant", text_to_speak)
+            if speak_output:
+                self.speak(text_to_speak)
+
+        # Sensitive Data Exposure Gate (CWE-532 / CWE-200):
+        # Route credential submissions through dedicated local handler before logging, recording, or tracing
+        is_pin_submission = (
+            any(q.startswith(w) for w in ["parol ", "kod ", "pin ", "parol:", "kod:", "pin:"])
+            or ("parol" in q and any(ch.isdigit() for ch in q))
+            or ("kod" in q and any(ch.isdigit() for ch in q))
+        )
+        if is_pin_submission:
+            logger.info(f"Processing command: '[REDACTED CREDENTIAL SUBMISSION]' (speak_output={speak_output}, user_id={uid})")
+            if hasattr(self, "dialogue_manager") and self.dialogue_manager:
+                self.dialogue_manager.append_chat_message(uid, "user", "[REDACTED CREDENTIAL SUBMISSION]")
+            trace_ctx = self.tracer.start_trace("[REDACTED CREDENTIAL SUBMISSION]", source="voice" if speak_output else "telegram")
+
+            # Extract PIN matching case-insensitively on raw_query to preserve exact credential casing!
+            m_pin = re.search(r'(?:parol|kod|pin|parolim|kodim)?\s*[:=]?\s*([a-zA-Z0-9!@#\$%\^&*_\-]+)', raw_query, re.IGNORECASE)
+            if not m_pin:
+                reply = "Kechirasiz, kiritilgan kod yoki parolni aniqlab bo'lmadi."
+                self.tracer.complete_trace(trace_ctx, reply, status="error")
+            elif not (hasattr(self, "sensor") and self.sensor) and not (hasattr(self, "desktop") and self.desktop):
+                reply = "Kechirasiz, klaviatura yoki sensor vositasi mavjud emas, PIN kiritib bo'lmadi."
+                self.tracer.complete_trace(trace_ctx, reply, status="error")
+            else:
+                pin_val = m_pin.group(1).strip()
+                if hasattr(self, "sensor") and self.sensor:
+                    self.sensor.unlock_with_pin(pin_val)
+                elif hasattr(self, "desktop") and self.desktop:
+                    self.desktop.keyboard_type(pin_val, press_enter=True)
+
+                time.sleep(1.0)
+                # Verify actual physical unlock state
+                is_locked = True
+                if hasattr(self, "sensor") and self.sensor:
+                    is_locked = self.sensor.is_workstation_locked()
+                elif hasattr(self, "system") and self.system:
+                    st = self.system.get_lock_status()
+                    is_locked = st.get("is_locked", True)
+
+                if is_locked is False:
+                    reply = "PIN muvaffaqiyatli kiritildi va kompyuter qulfdan chiqarildi."
+                    self.tracer.complete_trace(trace_ctx, reply, status="success")
+                else:
+                    reply = "PIN kiritildi, ammo kompyuter qulfdan chiqmadi. Parol noto'g'ri bo'lishi mumkin."
+                    self.tracer.complete_trace(trace_ctx, reply, status="verification_failed")
+
+            _speak_if_allowed(reply)
+            return reply
+
         logger.info(f"Processing command: '{q}' (speak_output={speak_output}, user_id={uid})")
 
         # Record user query in persistent dialogue history for two-way sync with Mini App
@@ -861,12 +924,6 @@ class JarvisCore:
 
         # OpenJarvis-style Execution Trace context
         trace_ctx = self.tracer.start_trace(query, source="voice" if speak_output else "telegram")
-
-        def _speak_if_allowed(text_to_speak: str):
-            if hasattr(self, "dialogue_manager") and self.dialogue_manager and text_to_speak:
-                self.dialogue_manager.append_chat_message(uid, "assistant", text_to_speak)
-            if speak_output:
-                self.speak(text_to_speak)
 
         # ---------------------------------------------------------------------
         # Gate 0: Active Safety Confirmation Gate Check
@@ -1131,6 +1188,7 @@ class JarvisCore:
                         if not function_calls:
                             break
 
+                        turn_responses = []
                         for fc in function_calls:
                             fn_name = fc.name
                             fn_args = dict(fc.args) if fc.args else {}
@@ -1148,35 +1206,52 @@ class JarvisCore:
                                 _speak_if_allowed(p_msg)
                                 return p_msg
 
-                            try:
-                                response = chat.send_message(
-                                    genai.protos.Part(
-                                        function_response=genai.protos.FunctionResponse(
-                                            name=fn_name,
-                                            response={"result": tool_result}
-                                        )
-                                    ),
-                                    request_options={"timeout": 30}
+                            # Anti-Hallucination Verification Gate: If physical verification explicitly failed, block success reply!
+                            if v_record and v_record.get("verified") is True and v_record.get("verified_success") is False:
+                                fail_reason = v_record.get("reason", "Amal tizimda fizik tasdiqlanmadi")
+                                fail_msg = f"Kechirasiz, {fail_reason}."
+                                self.tracer.complete_trace(trace_ctx, fail_msg, status="verification_failed")
+                                _speak_if_allowed(fail_msg)
+                                return fail_msg
+
+                            turn_responses.append(
+                                genai.protos.Part(
+                                    function_response=genai.protos.FunctionResponse(
+                                        name=fn_name,
+                                        response={"result": tool_result}
+                                    )
                                 )
-                            except Exception as fc_send_err:
-                                logger.warning(
-                                    f"Chat function_response proto send returned exception ({fc_send_err}), "
-                                    "synthesizing natural response via summary model fallback..."
-                                )
-                                summary_m = genai.GenerativeModel(m_name)
-                                verified_note = f" (Fizik tekshiruv: {v_record['reason']})" if v_record else ""
-                                prompt_synth = (
-                                    f"{system_instruction}\n\n"
-                                    f"Foydalanuvchi so'rovi: '{query}'\n"
-                                    f"Amalga oshirilgan tizim vositasi: {fn_name}({fn_args})\n"
-                                    f"Vosita natijasi: {tool_result}{verified_note}\n\n"
-                                    f"Foydalanuvchiga nima aniq ish bajarilganini bildirib, 1-2 gapda samimiy, zamonaviy va lo'nda o'zbek tilida javob bering. Yolg'on gapirmang."
-                                )
-                                res_synth = summary_m.generate_content(prompt_synth, request_options={"timeout": 30})
-                                final_reply = res_synth.text.strip()
-                                self.tracer.complete_trace(trace_ctx, final_reply, status="success")
-                                _speak_if_allowed(final_reply)
-                                return final_reply
+                            )
+
+                        try:
+                            # Send all function responses in batch for the current turn
+                            response = chat.send_message(
+                                turn_responses,
+                                request_options={"timeout": 30}
+                            )
+                        except Exception as fc_send_err:
+                            logger.warning(
+                                f"Chat function_response batch send returned exception ({fc_send_err}), "
+                                "synthesizing natural response across all executed tools..."
+                            )
+                            summary_m = genai.GenerativeModel(m_name)
+                            tools_summary_lines = []
+                            for fn, args, res, v in executed_tools:
+                                v_note = f" (Fizik tekshiruv: {v['reason']})" if v else ""
+                                tools_summary_lines.append(f"- {fn}({args}) -> {res}{v_note}")
+                            tools_summary_str = "\n".join(tools_summary_lines)
+
+                            prompt_synth = (
+                                f"{system_instruction}\n\n"
+                                f"Foydalanuvchi so'rovi: '{query}'\n"
+                                f"Amalga oshirilgan tizim vositalari:\n{tools_summary_str}\n\n"
+                                f"Foydalanuvchiga nima aniq ishlar bajarilganini bildirib, 1-2 gapda samimiy, zamonaviy va lo'nda o'zbek tilida javob bering. Yolg'on gapirmang."
+                            )
+                            res_synth = summary_m.generate_content(prompt_synth, request_options={"timeout": 30})
+                            final_reply = res_synth.text.strip()
+                            self.tracer.complete_trace(trace_ctx, final_reply, status="success")
+                            _speak_if_allowed(final_reply)
+                            return final_reply
 
                     if response and hasattr(response, "text") and response.text:
                         final_reply = response.text.strip()
@@ -1184,14 +1259,16 @@ class JarvisCore:
                         _speak_if_allowed(final_reply)
                         return final_reply
                     elif executed_tools:
-                        last_fn, last_args, last_res, last_v = executed_tools[-1]
+                        tools_summary_lines = []
+                        for fn, args, res, v in executed_tools:
+                            v_note = f" (Fizik tekshiruv: {v['reason']})" if v else ""
+                            tools_summary_lines.append(f"- {fn}({args}) -> {res}{v_note}")
+                        tools_summary_str = "\n".join(tools_summary_lines)
                         summary_m = genai.GenerativeModel(m_name)
-                        verified_note = f" (Fizik tekshiruv: {last_v['reason']})" if last_v else ""
                         prompt_synth = (
                             f"{system_instruction}\n\n"
                             f"Foydalanuvchi so'rovi: '{query}'\n"
-                            f"Amalga oshirilgan vosita: {last_fn}({last_args})\n"
-                            f"Vosita natijasi: {last_res}{verified_note}\n\n"
+                            f"Amalga oshirilgan vositalar:\n{tools_summary_str}\n\n"
                             f"Foydalanuvchiga nima qilinganini 1-2 gapda samimiy va lo'nda bildiring. Yolg'on da'vo qilmang."
                         )
                         res_synth = summary_m.generate_content(prompt_synth, request_options={"timeout": 30})
@@ -1203,6 +1280,18 @@ class JarvisCore:
                 except Exception as model_err:
                     err_str = str(model_err)
                     logger.warning(f"Gemini execution error with {m_name}: {model_err}")
+                    # If tools were already executed, DO NOT replay command or fall through to other handlers!
+                    if executed_tools:
+                        logger.info("Tools already executed prior to exception; recovering reply without replaying command.")
+                        summary_lines = []
+                        for fn, args, res, v in executed_tools:
+                            v_str = f" ({v['reason']})" if v else ""
+                            summary_lines.append(f"{fn}: {res}{v_str}")
+                        fallback_reply = "Quyidagi amallar bajarildi:\n" + "\n".join(summary_lines)
+                        self.tracer.complete_trace(trace_ctx, fallback_reply, status="success")
+                        _speak_if_allowed(fallback_reply)
+                        return fallback_reply
+
                     if "429" in err_str or "quota" in err_str.lower() or "resourceexhausted" in err_str.lower():
                         logger.warning(f"Quota exhausted on {m_name}. Switching to offline/local fallback immediately.")
                         break
@@ -1435,14 +1524,26 @@ class JarvisCore:
             rem_text = re.sub(r'\s*\d+\s*(?:daqiqa|minut)(?:dan\s+keyin)?', '', raw_rem, flags=re.IGNORECASE).strip()
             if not rem_text:
                 rem_text = "Eslatma"
+            saved = False
+            error_msg = None
             if self.tool_registry:
                 res = self.tool_registry.add_reminder(rem_text, delay_minutes=delay_mins)
                 if res.get("success"):
-                    reply = f"Eslatma muvaffaqiyatli saqlandi: \"{rem_text}\"."
+                    saved = True
                 else:
-                    reply = f"Eslatma qo'shishda xatolik: {res.get('error')}"
+                    error_msg = res.get("error")
+            elif hasattr(self, "scheduler") and self.scheduler:
+                try:
+                    self.scheduler.add_reminder(rem_text, delay_minutes=delay_mins)
+                    saved = True
+                except Exception as s_err:
+                    error_msg = str(s_err)
+
+            if saved:
+                reply = f"Eslatma muvaffaqiyatli saqlandi: \"{rem_text}\"."
             else:
-                reply = f"Eslatma qayd etildi: \"{rem_text}\"."
+                err_detail = f": {error_msg}" if error_msg else ""
+                reply = f"Kechirasiz, eslatmani saqlash imkoni bo'lmadi{err_detail}."
             _speak_if_allowed(reply)
             return reply
 
@@ -1690,10 +1791,10 @@ class JarvisCore:
             m_coords = re.search(r'(\d+)\s*(?:ga|x|va|,)\s*(\d+)', q)
             if m_coords and self.desktop:
                 mx, my = int(m_coords.group(1)), int(m_coords.group(2))
-                self.desktop.mouse_move(mx, my, smooth=True)
-                reply = f"Sichqoncha kursorini ({mx}, {my}) koordinatasiga siljitdim."
-            else:
-                reply = "Koordinatalar aniqlanmadi. Masalan: 'sichqonchani 500 ga 300 ga siljit'."
+                res = self.desktop.mouse_move(mx, my, smooth=True)
+                actual_x = res.get("x", mx) if isinstance(res, dict) else mx
+                actual_y = res.get("y", my) if isinstance(res, dict) else my
+                reply = f"Sichqoncha kursorini ({actual_x}, {actual_y}) koordinatasiga siljitdim."
             _speak_if_allowed(reply)
             return reply
 
@@ -1994,12 +2095,12 @@ class JarvisCore:
 
     def _start_concierge_listener(self):
         """Start the background Telethon listener for Monika AI Concierge (Kotiba Rejimi)."""
-        concierge_thread = threading.Thread(
+        self._concierge_thread = threading.Thread(
             target=self._concierge_telethon_worker,
             name="JARVIS-ConciergeListener",
             daemon=True
         )
-        concierge_thread.start()
+        self._concierge_thread.start()
         logger.info("🛡️ Monika AI Concierge Telethon background listener thread spawned.")
 
     def _concierge_telethon_worker(self):
@@ -2007,6 +2108,7 @@ class JarvisCore:
         logger.info("🛡️ Initializing Telethon Concierge event listener...")
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
+        self._concierge_loop = loop
 
         async def _runner():
             try:
@@ -2037,6 +2139,7 @@ class JarvisCore:
                     if hasattr(JarvisUserTelegram, "set_shared_client"):
                         JarvisUserTelegram.set_shared_client(client, loop)
 
+                    self._concierge_client = client
                     # Reset reconnect counter on successful connect
                     attempt = 0
 
@@ -2072,6 +2175,7 @@ class JarvisCore:
                     logger.warning(f"Concierge Telethon listener loop exception (attempt {attempt}): {ex}")
                     await asyncio.sleep(5.0)
                 finally:
+                    self._concierge_client = None
                     if hasattr(JarvisUserTelegram, "clear_shared_client"):
                         JarvisUserTelegram.clear_shared_client()
                     if client and client.is_connected():
@@ -2092,6 +2196,29 @@ class JarvisCore:
 
     def stop(self):
         self.is_running = False
+        if hasattr(self, "_stop_event") and self._stop_event:
+            self._stop_event.set()
+
+        # Disconnect concierge listener and client cleanly
+        if hasattr(self, "_concierge_client") and self._concierge_client:
+            try:
+                if hasattr(self, "_concierge_loop") and self._concierge_loop and self._concierge_loop.is_running():
+                    asyncio.run_coroutine_threadsafe(self._concierge_client.disconnect(), self._concierge_loop)
+            except Exception:
+                pass
+
+        if hasattr(self, "_concierge_thread") and self._concierge_thread:
+            try:
+                self._concierge_thread.join(timeout=3.0)
+            except Exception:
+                pass
+
+        if hasattr(self, "_heartbeat_thread") and self._heartbeat_thread:
+            try:
+                self._heartbeat_thread.join(timeout=2.0)
+            except Exception:
+                pass
+
         if self.voice and hasattr(self.voice, "stop"):
             self.voice.stop()
         if self.vision:

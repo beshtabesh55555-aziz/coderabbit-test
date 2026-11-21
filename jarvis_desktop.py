@@ -37,6 +37,17 @@ class POINT(ctypes.Structure):
     _fields_ = [("x", ctypes.c_long), ("y", ctypes.c_long)]
 
 
+class MOUSEINPUT(ctypes.Structure):
+    _fields_ = [
+        ("dx", ctypes.c_long),
+        ("dy", ctypes.c_long),
+        ("mouseData", wintypes.DWORD),
+        ("dwFlags", wintypes.DWORD),
+        ("time", wintypes.DWORD),
+        ("dwExtraInfo", ctypes.c_ulonglong)
+    ]
+
+
 class KEYBDINPUT(ctypes.Structure):
     _fields_ = [
         ("wVk", wintypes.WORD),
@@ -47,8 +58,20 @@ class KEYBDINPUT(ctypes.Structure):
     ]
 
 
+class HARDWAREINPUT(ctypes.Structure):
+    _fields_ = [
+        ("uMsg", wintypes.DWORD),
+        ("wParamL", wintypes.WORD),
+        ("wParamH", wintypes.WORD)
+    ]
+
+
 class INPUT_UNION(ctypes.Union):
-    _fields_ = [("ki", KEYBDINPUT)]
+    _fields_ = [
+        ("mi", MOUSEINPUT),
+        ("ki", KEYBDINPUT),
+        ("hi", HARDWAREINPUT)
+    ]
 
 
 class INPUT(ctypes.Structure):
@@ -274,14 +297,20 @@ class JarvisDesktop:
             else:
                 return {"error": f"Unknown key code: '{p}'"}
 
-        # Press keys down in forward order
-        for vk in vk_codes:
-            user32.keybd_event(vk, 0, 0, 0)
-            time.sleep(0.02)
-        # Release keys in reverse order
-        for vk in reversed(vk_codes):
-            user32.keybd_event(vk, 0, 2, 0)
-            time.sleep(0.02)
+        # Press keys down in forward order with failsafe protection and clean release
+        pressed_vks = []
+        try:
+            self._check_failsafe()
+            for vk in vk_codes:
+                self._check_failsafe()
+                user32.keybd_event(vk, 0, 0, 0)
+                pressed_vks.append(vk)
+                time.sleep(0.02)
+        finally:
+            # Always ensure any pressed keys are released even if aborted
+            for vk in reversed(pressed_vks):
+                user32.keybd_event(vk, 0, 2, 0)
+                time.sleep(0.01)
 
         logger.info(f"Key combination pressed: {key_or_combo}")
         return {"key": key_or_combo, "status": "success"}
@@ -289,6 +318,7 @@ class JarvisDesktop:
     def keyboard_type(self, text: str, press_enter: bool = False, delay: float = 0.01) -> Dict[str, Any]:
         """Type Unicode text reliably via SendInput."""
         self._attach_desktop()
+        self._check_failsafe()
         raw_text = str(text)
         if self.RESTRICTED_TYPE_REGEX.search(raw_text):
             logger.warning(f"Restricted text typing rejected by regex: {text[:50]}")
@@ -297,7 +327,9 @@ class JarvisDesktop:
         KEYEVENTF_UNICODE = 0x0004
         KEYEVENTF_KEYUP = 0x0002
 
-        for char in str(text):
+        for i, char in enumerate(str(text)):
+            if i % 10 == 0:
+                self._check_failsafe()
             scan_code = ord(char)
             # Key down
             inp_down = INPUT()
