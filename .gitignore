@@ -60,3 +60,5 @@ audio_cache/
 .idea/
 .DS_Store
 Thumbs.db
+
+*.jsonl
