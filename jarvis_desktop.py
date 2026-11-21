@@ -128,12 +128,13 @@ class JarvisDesktop:
         """Release attached desktop handle after restoring original thread desktop."""
         if getattr(self, "_orig_hdesk", None):
             try:
-                user32.SetThreadDesktop(self._orig_hdesk)
+                ok = user32.SetThreadDesktop(self._orig_hdesk)
+                if ok:
+                    self._orig_hdesk = None
             except Exception:
                 pass
-            self._orig_hdesk = None
 
-        if getattr(self, "_hdesk", None):
+        if not getattr(self, "_orig_hdesk", None) and getattr(self, "_hdesk", None):
             try:
                 ok = user32.CloseDesktop(self._hdesk)
                 if ok:
@@ -210,6 +211,7 @@ class JarvisDesktop:
         x = max(0, min(x, w - 1))
         y = max(0, min(y, h - 1))
 
+        move_ok = True
         if smooth:
             try:
                 curr_x, curr_y = self.get_cursor_pos()
@@ -224,12 +226,22 @@ class JarvisDesktop:
                     ease = (1.0 - math.cos(t * math.pi)) / 2.0
                     step_x = int(curr_x + (x - curr_x) * ease)
                     step_y = int(curr_y + (y - curr_y) * ease)
-                    user32.SetCursorPos(step_x, step_y)
+                    move_ok = bool(user32.SetCursorPos(step_x, step_y))
                     time.sleep(0.005)
             else:
-                user32.SetCursorPos(x, y)
+                move_ok = bool(user32.SetCursorPos(x, y))
         else:
-            user32.SetCursorPos(x, y)
+            move_ok = bool(user32.SetCursorPos(x, y))
+
+        if not move_ok:
+            logger.warning(f"Windows rejected SetCursorPos to ({x}, {y})")
+            return {
+                "success": False,
+                "error": "Windows rejected SetCursorPos call",
+                "target_x": x,
+                "target_y": y,
+                "status": "failed",
+            }
 
         try:
             final_x, final_y = self.get_cursor_pos()
@@ -246,7 +258,7 @@ class JarvisDesktop:
         except Exception as e:
             logger.warning(f"Cursor moved to ({x}, {y}) but reading final position failed: {e}")
             return {
-                "success": True,
+                "success": move_ok,
                 "moved_only": True,
                 "x": None,
                 "y": None,

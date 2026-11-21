@@ -27,6 +27,14 @@ if not logger.handlers:
     logger.setLevel(logging.INFO)
 
 
+class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Disallows HTTP redirects for local inference endpoints to prevent SSRF."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        logger.warning(f"Prevented redirect from local inference host to {newurl}")
+        return None
+
+
 class JarvisLocalLLM:
     """Interface to local, on-device inference engines."""
 
@@ -37,8 +45,15 @@ class JarvisLocalLLM:
             raw_host = f"http://{raw_host}"
         raw_host = raw_host.rstrip("/")
 
-        parsed = urllib.parse.urlparse(raw_host)
-        hostname = (parsed.hostname or "").lower()
+        try:
+            parsed = urllib.parse.urlparse(raw_host)
+            hostname = (parsed.hostname or "").lower()
+        except Exception as e:
+            logger.warning(f"Error parsing Ollama host '{raw_host}': {e}. Falling back to http://127.0.0.1:11434")
+            raw_host = "http://127.0.0.1:11434"
+            parsed = urllib.parse.urlparse(raw_host)
+            hostname = "127.0.0.1"
+
         allow_remote = allow_remote or (os.environ.get("OLLAMA_ALLOW_REMOTE", "0") == "1")
 
         if hostname not in ("127.0.0.1", "localhost", "::1"):
@@ -47,15 +62,27 @@ class JarvisLocalLLM:
                     f"Non-loopback Ollama host '{hostname}' rejected for offline safety. Falling back to http://127.0.0.1:11434"
                 )
                 raw_host = "http://127.0.0.1:11434"
+                hostname = "127.0.0.1"
             elif parsed.scheme != "https":
                 logger.warning("Remote Ollama host requires HTTPS. Falling back to http://127.0.0.1:11434")
                 raw_host = "http://127.0.0.1:11434"
+                hostname = "127.0.0.1"
 
         self.host = raw_host
         self.default_model = default_model
         self._last_health_check = 0.0
         self._is_online = False
         self._available_models: List[str] = []
+
+        # Enforce proxy bypass and disable redirects for loopback endpoints
+        self._is_loopback = (hostname in ("127.0.0.1", "localhost", "::1"))
+        if self._is_loopback:
+            self._opener = urllib.request.build_opener(
+                urllib.request.ProxyHandler({}),
+                _NoRedirectHandler()
+            )
+        else:
+            self._opener = urllib.request.build_opener(_NoRedirectHandler())
 
     def is_available(self, timeout: float = 1.2) -> bool:
         """Check if local Ollama/inference server is reachable."""
@@ -67,7 +94,7 @@ class JarvisLocalLLM:
         self._last_health_check = now
         try:
             req = urllib.request.Request(f"{self.host}/api/tags", headers={"User-Agent": "Jarvis-LocalLLM"})
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
+            with self._opener.open(req, timeout=timeout) as resp:
                 if resp.status == 200:
                     data = json.loads(resp.read().decode("utf-8"))
                     models = [m.get("name", "") for m in data.get("models", [])]
@@ -115,7 +142,7 @@ class JarvisLocalLLM:
                 data=body,
                 headers={"Content-Type": "application/json"}
             )
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
+            with self._opener.open(req, timeout=timeout) as resp:
                 if resp.status == 200:
                     res_data = json.loads(resp.read().decode("utf-8"))
                     text = res_data.get("response", "").strip()
@@ -144,7 +171,7 @@ class JarvisLocalLLM:
                 data=body,
                 headers={"Content-Type": "application/json"}
             )
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
+            with self._opener.open(req, timeout=timeout) as resp:
                 if resp.status == 200:
                     res_data = json.loads(resp.read().decode("utf-8"))
                     msg = res_data.get("message", {})

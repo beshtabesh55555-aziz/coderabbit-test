@@ -616,8 +616,9 @@ class AmbiguityEngine:
             orig_low = (original_query or "").lower()
 
             # Check if original query specifically names a concrete file
-            file_match = re.search(r'([a-zA-Z0-9_\-\u0400-\u04FF]+\.(?:pdf|txt|docx?|xlsx?|pptx?|png|jpe?g|zip|rar))\b', original_query or "", re.IGNORECASE)
-            if file_match:
+            file_intent = any(w in orig_low for w in ["fayl", "faylni", "hujjat", "hujjatni", "rasm", "rasmni", "skrinshot"])
+            file_match = re.search(r'([a-zA-Z0-9_\-\u0400-\u04FF]+(?:\.[a-zA-Z0-9_\-]+)*\.(?:pdf|txt|docx?|xlsx?|pptx?|png|jpe?g|zip|rar))\b', original_query or "", re.IGNORECASE)
+            if file_match and (file_intent or not any(w in orig_low for w in ["deb yoz", "deb yubor", "xabar"])):
                 filename = file_match.group(1)
                 return {
                     "status": "resolved",

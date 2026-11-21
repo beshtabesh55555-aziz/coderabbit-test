@@ -438,7 +438,7 @@ class JarvisCore:
 
         def _dispatch_alert():
             if self.telegram:
-                status_note = " (Tizim Qulflangan)" if not is_unlocked else " (Qurollangan Nazorat)"
+                status_note = " (Tizim Qulflangan)"
                 caption = (
                     f"🚨 <b>DIQQAT: Harakat aniqlandi!</b>\n"
                     f"⏰ Vaqt: {time.strftime('%Y-%m-%d %H:%M:%S')}\n"
@@ -618,6 +618,42 @@ class JarvisCore:
                     return f"Faylni {recipient} ga yuborishda xatolik: {res.get('error')}"
             except Exception as e:
                 return f"Faylni yuborishda xatolik yuz berdi: {e}"
+
+        # 5. Named File Resolution
+        elif intent == "SEND_FILE" or action == "send_file":
+            recipient = kwargs.get("recipient") or resolved.get("recipient")
+            filename = kwargs.get("filename") or kwargs.get("file_path") or resolved.get("filename")
+            if not recipient:
+                return "Qabul qiluvchi shaxs ko'rsatilmadi."
+            if not filename:
+                return "Yuboriladigan fayl nomi ko'rsatilmadi."
+
+            target_file = None
+            search_dirs = [
+                self.base_dir,
+                Path.home() / "Documents",
+                Path.home() / "Downloads",
+                Path.home() / "Desktop",
+            ]
+            for sdir in search_dirs:
+                cand = sdir / filename
+                if cand.exists() and cand.is_file():
+                    target_file = cand
+                    break
+
+            if not target_file:
+                return f"❌ <b>{filename}</b> fayli kompyuterda topilmadi."
+
+            try:
+                from jarvis_user_telegram import JarvisUserTelegram
+                caption = f"📄 {target_file.name}"
+                res = JarvisUserTelegram.send_telegram_file(recipient, str(target_file), caption=caption)
+                if res.get("success"):
+                    return f"✅ <b>{target_file.name}</b> fayli muvaffaqiyatli olindi va {res.get('target', recipient)} ga yuborildi."
+                else:
+                    return f"❌ Faylni {recipient} ga yuborishda xatolik: {res.get('error')}"
+            except Exception as e:
+                return f"❌ Faylni yuborishda xatolik yuz berdi: {e}"
 
         # Default fallback execution
         res_query = resolved.get("resolved_query") or resolved.get("message") or "Buyruq qabul qilindi"
@@ -876,6 +912,13 @@ class JarvisCore:
                     self.voice.stop_speaking()
                 except Exception:
                     pass
+
+            # If user explicitly said 'stop'/'to'xta' and a confirmation is pending, cancel the pending action
+            if q in ["stop", "to'xta", "toxta", "bekor", "cancel"] and getattr(self, "safety_manager", None):
+                cancel_res = self.safety_manager.cancel_pending()
+                if cancel_res:
+                    return cancel_res
+
             msg = "Xo'p bo'ladi, jim bo'ldim."
             if speak_output:
                 self.speak(msg)
@@ -904,7 +947,10 @@ class JarvisCore:
 
         def _speak_if_allowed(text_to_speak: str):
             if hasattr(self, "dialogue_manager") and self.dialogue_manager and text_to_speak:
-                self.dialogue_manager.append_chat_message(uid, "assistant", text_to_speak)
+                try:
+                    self.dialogue_manager.append_chat_message(uid, "assistant", text_to_speak)
+                except Exception as e:
+                    logger.warning(f"Could not persist assistant chat message: {e}")
             if speak_output:
                 self.speak(text_to_speak)
 
@@ -961,7 +1007,10 @@ class JarvisCore:
 
         # Record user query in persistent dialogue history for two-way sync with Mini App
         if hasattr(self, "dialogue_manager") and self.dialogue_manager and query:
-            self.dialogue_manager.append_chat_message(uid, "user", query)
+            try:
+                self.dialogue_manager.append_chat_message(uid, "user", query)
+            except Exception as e:
+                logger.warning(f"Could not persist user chat message: {e}")
 
         # OpenJarvis-style Execution Trace context
         trace_ctx = self.tracer.start_trace(query, source="voice" if speak_output else "telegram")
@@ -993,6 +1042,16 @@ class JarvisCore:
                     self.tracer.complete_trace(trace_ctx, cancel_reply, status="clarification_cancelled")
                     _speak_if_allowed(cancel_reply)
                     return cancel_reply
+                elif resolved.get("status") == "unresolved":
+                    unres_reply = resolved.get("message") or "Iltimos, taklif qilingan variantlardan birini tanlang."
+                    self.tracer.complete_trace(trace_ctx, unres_reply, status="clarification_unresolved")
+                    _speak_if_allowed(unres_reply)
+                    return unres_reply
+                elif resolved.get("status") == "already_handled":
+                    handled_reply = resolved.get("message") or "Ushbu so'rov allaqachon bajarilgan."
+                    self.tracer.complete_trace(trace_ctx, handled_reply, status="clarification_handled")
+                    _speak_if_allowed(handled_reply)
+                    return handled_reply
 
         # ---------------------------------------------------------------------
         # Gate 0.2: Cognitive Ambiguity Check (Detects missing slots or 2-sided ambiguities)
@@ -1487,7 +1546,11 @@ class JarvisCore:
             and not any(w in q for w in ["och", "chiqar", "uyg'ot", "kerak", "qanday"])
         )
         if is_lock_cmd:
-            self.system.lock_workstation()
+            res_lock = self.system.lock_workstation() if self.system else {"success": False}
+            if not res_lock.get("success"):
+                msg = "Kompyuter ekranini qulflab bo'lmadi."
+                _speak_if_allowed(msg)
+                return msg
             msg = "Kompyuter ekrani muvaffaqiyatli qulflandi."
             _speak_if_allowed(msg)
             return msg
@@ -2216,9 +2279,15 @@ class JarvisCore:
                     if is_wake:
                         redacted = self._redact_voice_transcript(heard_text)
                         logger.info(f"✨ Wake word recognized: '{redacted}'")
-                        cmd_text = lower_text
+                        cmd_text = heard_text
                         for w in config.WAKE_WORDS:
-                            cmd_text = cmd_text.replace(w, "").strip()
+                            if lower_text.startswith(w):
+                                cmd_text = heard_text[len(w):].strip()
+                                break
+                            idx = lower_text.find(w)
+                            if idx >= 0:
+                                cmd_text = (heard_text[:idx] + heard_text[idx+len(w):]).strip()
+                                break
 
                         if not cmd_text or len(cmd_text) < 3:
                             self.speak("Labbay, eshitaman?")

@@ -139,7 +139,9 @@ class JarvisDialogueManager:
             else:
                 norm_options.append({"text": str(opt), "callback_data": f"clarify:{str(opt).lower().strip()}"})
 
+        prompt_id = f"prompt_{int(time.time() * 1000)}"
         record = {
+            "prompt_id": prompt_id,
             "user_id": uid,
             "state": "AWAITING_CLARIFICATION",
             "original_query": str(original_query).strip(),
@@ -212,20 +214,37 @@ class JarvisDialogueManager:
         """
         return self.get_pending_clarification(user_id) is not None
 
-    def clear_pending(self, user_id: Union[str, int]) -> bool:
+    def clear_pending(self, user_id: Union[str, int], prompt_id: Optional[str] = None) -> bool:
         """Clear or cancel any pending clarification state for a user.
 
         Args:
             user_id: Unique identifier for the user.
+            prompt_id: Optional prompt identifier to ensure atomic match and avoid race conditions.
 
         Returns:
             bool: True if state was present and removed, False otherwise.
         """
         uid = str(user_id).strip()
+        now = time.time()
         with self._lock:
             states = self._load_all_unlocked()
             user_entry = states.get(uid)
             if user_entry and user_entry.get("pending_clarification"):
+                rec = user_entry.get("pending_clarification")
+                if prompt_id and rec.get("prompt_id") != prompt_id:
+                    logger.warning(
+                        f"clear_pending prompt_id mismatch for {uid}: "
+                        f"expected {prompt_id}, found {rec.get('prompt_id')}"
+                    )
+                    return False
+                if prompt_id and now > float(rec.get("expires_at", 0)):
+                    logger.warning(
+                        f"clear_pending expired for {uid}: "
+                        f"expires_at={rec.get('expires_at')}, now={now}"
+                    )
+                    user_entry["pending_clarification"] = None
+                    self._save_all_unlocked(states)
+                    return False
                 user_entry["pending_clarification"] = None
                 self._save_all_unlocked(states)
                 logger.info(f"Cleared pending clarification for user {uid}.")
@@ -372,6 +391,7 @@ class JarvisDialogueManager:
             return None
 
         orig_query = pending.get("original_query", "")
+        expected_prompt_id = pending.get("prompt_id")
         ambiguity_type = pending.get("ambiguity_type", "NONE")
         original_intent = pending.get("intent", "")
         context_data = pending.get("context_data") or {}
@@ -380,17 +400,18 @@ class JarvisDialogueManager:
         answer_low = answer_raw.lower()
 
         logger.info(
-            f"Resolving clarification for user {uid}: answer='{answer_raw}', "
-            f"ambiguity_type={ambiguity_type}, orig_query='{orig_query}'"
+            f"Resolving clarification for user {uid}: prompt_id={expected_prompt_id}, "
+            f"answer='{answer_raw}', ambiguity_type={ambiguity_type}, orig_query='{orig_query}'"
         )
 
         # Check for explicit cancellation
         cancellation_keywords = {"bekor", "bekor qil", "yo'q", "yoq", "kerakmas", "kerak emas", "cancel", "stop", "to'xtat"}
         if answer_low in cancellation_keywords:
-            self.clear_pending(uid)
+            self.clear_pending(uid, prompt_id=expected_prompt_id)
             return {
                 "status": "cancelled",
                 "user_id": uid,
+                "prompt_id": expected_prompt_id,
                 "original_query": orig_query,
                 "ambiguity_type": ambiguity_type,
                 "user_answer": answer_raw,
@@ -462,6 +483,7 @@ class JarvisDialogueManager:
         result = {
             "status": "resolved",
             "user_id": uid,
+            "prompt_id": expected_prompt_id,
             "resolved_query": resolved_query,
             "intent": intent,
             "action": action,
@@ -475,14 +497,18 @@ class JarvisDialogueManager:
             "message": message,
         }
 
-        # Step 4: Clear pending state now that resolution succeeded
-        cleared = self.clear_pending(uid)
+        # Step 4: Clear pending state now that resolution succeeded (using prompt_id under lock)
+        cleared = self.clear_pending(uid, prompt_id=expected_prompt_id)
         if not cleared:
-            logger.warning(f"Clarification resolution collision/race condition for user {uid}")
+            logger.warning(
+                f"Clarification resolution collision/race condition for user {uid} "
+                f"(prompt_id={expected_prompt_id})"
+            )
             return {
                 "status": "already_handled",
                 "user_id": uid,
-                "message": "Ushbu so'rov allaqachon bajarilgan."
+                "prompt_id": expected_prompt_id,
+                "message": "Ushbu so'rov allaqachon bajarilgan yoki muddati o'tgan."
             }
 
         logger.info(f"Clarification successfully resolved for user {uid} -> action: {action}, intent: {intent}")
