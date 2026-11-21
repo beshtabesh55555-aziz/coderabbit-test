@@ -105,6 +105,7 @@ class JarvisDesktop:
     def __init__(self, failsafe: bool = True):
         self.failsafe = failsafe
         self._hdesk = None
+        self._orig_hdesk = None
         self._attach_desktop()
 
     def _attach_desktop(self):
@@ -112,6 +113,8 @@ class JarvisDesktop:
         if getattr(self, "_hdesk", None):
             return
         try:
+            if not getattr(self, "_orig_hdesk", None):
+                self._orig_hdesk = user32.GetThreadDesktop(kernel32.GetCurrentThreadId())
             hdesk = user32.OpenInputDesktop(0, False, 0x01FF)
             if hdesk:
                 if user32.SetThreadDesktop(hdesk):
@@ -122,13 +125,21 @@ class JarvisDesktop:
             pass
 
     def close(self):
-        """Release attached desktop handle."""
-        if getattr(self, "_hdesk", None):
+        """Release attached desktop handle after restoring original thread desktop."""
+        if getattr(self, "_orig_hdesk", None):
             try:
-                user32.CloseDesktop(self._hdesk)
+                user32.SetThreadDesktop(self._orig_hdesk)
             except Exception:
                 pass
-            self._hdesk = None
+            self._orig_hdesk = None
+
+        if getattr(self, "_hdesk", None):
+            try:
+                ok = user32.CloseDesktop(self._hdesk)
+                if ok:
+                    self._hdesk = None
+            except Exception:
+                self._hdesk = None
 
     def __del__(self):
         self.close()
@@ -169,9 +180,22 @@ class JarvisDesktop:
         self._attach_desktop()
         pt = POINT()
         if not user32.GetCursorPos(ctypes.byref(pt)):
-            # Retry once after refreshing desktop attachment (e.g. desktop switch / UAC)
-            self._hdesk = None
-            self._attach_desktop()
+            try:
+                hdesk = user32.OpenInputDesktop(0, False, 0x01FF)
+                if hdesk:
+                    if user32.SetThreadDesktop(hdesk):
+                        old_hdesk = self._hdesk
+                        self._hdesk = hdesk
+                        if old_hdesk:
+                            try:
+                                user32.CloseDesktop(old_hdesk)
+                            except Exception:
+                                pass
+                    else:
+                        user32.CloseDesktop(hdesk)
+            except Exception:
+                pass
+
             if not user32.GetCursorPos(ctypes.byref(pt)):
                 raise RuntimeError("Failed to read cursor position via GetCursorPos.")
         return pt.x, pt.y
@@ -187,29 +211,49 @@ class JarvisDesktop:
         y = max(0, min(y, h - 1))
 
         if smooth:
-            curr_x, curr_y = self.get_cursor_pos()
-            for i in range(1, steps + 1):
-                # Cosine easing for natural human-like movement
-                t = i / steps
-                ease = (1.0 - math.cos(t * math.pi)) / 2.0
-                step_x = int(curr_x + (x - curr_x) * ease)
-                step_y = int(curr_y + (y - curr_y) * ease)
-                user32.SetCursorPos(step_x, step_y)
-                time.sleep(0.005)
+            try:
+                curr_x, curr_y = self.get_cursor_pos()
+                can_smooth = True
+            except Exception:
+                can_smooth = False
+
+            if can_smooth:
+                for i in range(1, steps + 1):
+                    # Cosine easing for natural human-like movement
+                    t = i / steps
+                    ease = (1.0 - math.cos(t * math.pi)) / 2.0
+                    step_x = int(curr_x + (x - curr_x) * ease)
+                    step_y = int(curr_y + (y - curr_y) * ease)
+                    user32.SetCursorPos(step_x, step_y)
+                    time.sleep(0.005)
+            else:
+                user32.SetCursorPos(x, y)
         else:
             user32.SetCursorPos(x, y)
 
-        final_x, final_y = self.get_cursor_pos()
-        success = (final_x == x and final_y == y)
-        logger.info(f"Cursor moved to ({final_x}, {final_y}) (target: {x}, {y})")
-        return {
-            "success": success,
-            "x": final_x,
-            "y": final_y,
-            "target_x": x,
-            "target_y": y,
-            "status": "success" if success else "partial",
-        }
+        try:
+            final_x, final_y = self.get_cursor_pos()
+            success = (final_x == x and final_y == y)
+            logger.info(f"Cursor moved to ({final_x}, {final_y}) (target: {x}, {y})")
+            return {
+                "success": success,
+                "x": final_x,
+                "y": final_y,
+                "target_x": x,
+                "target_y": y,
+                "status": "success" if success else "partial",
+            }
+        except Exception as e:
+            logger.warning(f"Cursor moved to ({x}, {y}) but reading final position failed: {e}")
+            return {
+                "success": True,
+                "moved_only": True,
+                "x": None,
+                "y": None,
+                "target_x": x,
+                "target_y": y,
+                "status": "position_unconfirmed",
+            }
 
     def mouse_click(self, x: Optional[int] = None, y: Optional[int] = None,
                     button: str = "left", clicks: int = 1) -> Dict[str, Any]:
@@ -439,14 +483,21 @@ class JarvisDesktop:
         else:
             img.save(str(save_path))
 
-        cur_x, cur_y = self.get_cursor_pos()
+        cursor_data = None
+        try:
+            cur_x, cur_y = self.get_cursor_pos()
+            cursor_data = {"x": cur_x, "y": cur_y}
+        except Exception as e:
+            logger.warning(f"Could not read cursor position for screenshot: {e}")
+            cursor_data = None
+
         w, h = self.get_screen_size()
         logger.info(f"Desktop screenshot saved: {save_path} ({w}x{h})")
         return {
             "path": str(save_path),
             "width": w,
             "height": h,
-            "cursor": {"x": cur_x, "y": cur_y},
+            "cursor": cursor_data,
             "status": "success"
         }
 

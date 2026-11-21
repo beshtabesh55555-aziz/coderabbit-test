@@ -74,15 +74,17 @@ class JarvisTracer:
         """
         # If tool returned an explicit error/failure, it cannot be verified as successful
         if isinstance(tool_result, dict) and not tool_result.get("success", True):
+            err_msg = tool_result.get("error") or "Noma'lum xatolik"
             return {
                 "verified": False,
                 "verified_success": False,
-                "reason": f"Vosita xatolik bilan yakunlandi: {tool_result.get('error', 'Noma\'lum xatolik')}",
+                "reason": f"Vosita xatolik bilan yakunlandi: {err_msg}",
                 "post_state": None
             }
 
-        verified = True
-        reason = "Vosita muvaffaqiyatli bajarildi."
+        verified = False
+        verified_success = None
+        reason = "Tekshiruv amalga oshirilmadi (maxsus sensor yo'q)."
         post_state = None
 
         try:
@@ -95,8 +97,12 @@ class JarvisTracer:
                         sz = p.stat().st_size
                         post_state = f"Fayl mavjud ({sz} bayt)"
                         reason = f"Fayl diskda fizik mavjudligi tasdiqlandi: {p.name} ({sz} bayt)."
+                        verified = True
+                        verified_success = True
                     else:
-                        verified = False
+                        verified = True
+                        verified_success = False
+                        post_state = "Fayl diskda topilmadi"
                         reason = f"XATO: Fayl diskda topilmadi: {path_str}"
 
             # 2. Volume Verification
@@ -105,21 +111,36 @@ class JarvisTracer:
                 if sensor and hasattr(sensor, "get_volume_level"):
                     current_vol = sensor.get_volume_level()
                     post_state = f"Volume: {current_vol}%"
-                    reason = f"Ovoz darajasi fizik tekshirildi: {current_vol}%."
+                    if target_lvl is not None and abs(int(current_vol) - int(target_lvl)) <= 3:
+                        verified = True
+                        verified_success = True
+                        reason = f"Ovoz darajasi fizik tasdiqlandi: {current_vol}% (maqsad: {target_lvl}%)."
+                    else:
+                        verified = True
+                        verified_success = False
+                        reason = f"Ovoz darajasi mos kelmadi: joriy={current_vol}%, kutilgan={target_lvl}%."
                 else:
                     post_state = f"Ovoz o'rnatildi: {target_lvl}%"
+                    reason = "Ovoz sensori mavjud emas, tasdiqlanmadi."
 
             # 3. Workstation Lock Verification
             elif tool_name == "lock_computer":
                 if sensor and hasattr(sensor, "is_locked"):
                     locked = sensor.is_locked()
-                    post_state = "LOCKED" if locked else "UNLOCKED"
                     if not locked:
-                        # Locking takes a fraction of a second, re-check
                         time.sleep(0.3)
                         locked = sensor.is_locked()
-                        post_state = "LOCKED" if locked else "UNLOCKED"
-                    reason = "Ekran qulflanganligi tasdiqlandi." if locked else "Ogohlantirish: Ekran hali qulflanmagan."
+                    post_state = "LOCKED" if locked else "UNLOCKED"
+                    if locked:
+                        verified = True
+                        verified_success = True
+                        reason = "Ekran qulflanganligi tasdiqlandi."
+                    else:
+                        verified = True
+                        verified_success = False
+                        reason = "XATO: Ekran hali qulflanmagan."
+                else:
+                    reason = "Qulf sensori mavjud emas, tasdiqlanmadi."
 
             # 4. Reminder Storage Verification
             elif tool_name == "add_reminder":
@@ -129,13 +150,20 @@ class JarvisTracer:
                         with open(rem_file, "r", encoding="utf-8") as f:
                             data = json.load(f)
                         rems = data.get("reminders", [])
-                        rem_text = tool_args.get("text", "")
-                        matching = [r for r in rems if rem_text in r.get("text", "")]
+                        rem_text = str(tool_args.get("text", "")).strip()
+                        matching = [r for r in rems if rem_text and rem_text in r.get("text", "")]
                         if matching:
                             post_state = f"{len(matching)} ta eslatma saqlangan"
                             reason = f"Eslatma bazada saqlangani fizik tasdiqlandi: {matching[-1].get('trigger_at')}."
-                    except Exception:
-                        pass
+                            verified = True
+                            verified_success = True
+                        else:
+                            verified = True
+                            verified_success = False
+                            post_state = "Eslatma bazada topilmadi"
+                            reason = f"Eslatma bazada topilmadi: '{rem_text}'"
+                    except Exception as e:
+                        reason = f"Eslatma faylini o'qishda xatolik: {e}"
 
             # 5. Application Launch Verification
             elif tool_name == "launch_application":
@@ -143,8 +171,16 @@ class JarvisTracer:
                 time.sleep(0.4)
                 if sensor and hasattr(sensor, "get_active_window"):
                     act = sensor.get_active_window()
-                    post_state = f"Faol: {act.get('title', 'Noma\'lum')}"
-                    reason = f"Dastur ishga tushirildi: {app_name}."
+                    act_title = act.get("title") or "Noma'lum"
+                    post_state = f"Faol: {act_title}"
+                    if app_name and (app_name in act_title.lower() or app_name in str(act.get("process", "")).lower()):
+                        verified = True
+                        verified_success = True
+                        reason = f"Dastur ishga tushirildi va faol oyna tasdiqlandi: {app_name}."
+                    else:
+                        reason = f"Dastur oynasi faol holatda tasdiqlanmadi (faol: {act_title})."
+                else:
+                    reason = "Oyna sensori mavjud emas, tasdiqlanmadi."
 
         except Exception as v_err:
             logger.warning(f"Verification exception for {tool_name}: {v_err}")
@@ -152,7 +188,7 @@ class JarvisTracer:
 
         return {
             "verified": verified,
-            "verified_success": True if verified else False,
+            "verified_success": verified_success,
             "reason": reason,
             "post_state": post_state
         }

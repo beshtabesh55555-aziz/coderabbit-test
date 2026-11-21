@@ -16,6 +16,7 @@ import time
 import logging
 import urllib.request
 import urllib.error
+import urllib.parse
 from typing import Optional, Dict, Any, List
 
 logger = logging.getLogger("JarvisLocalLLM")
@@ -29,8 +30,28 @@ if not logger.handlers:
 class JarvisLocalLLM:
     """Interface to local, on-device inference engines."""
 
-    def __init__(self, host: Optional[str] = None, default_model: str = "qwen2.5:3b"):
-        self.host = (host or os.environ.get("OLLAMA_HOST", "http://127.0.0.1:11434")).rstrip("/")
+    def __init__(self, host: Optional[str] = None, default_model: str = "qwen2.5:3b", allow_remote: bool = False):
+        raw_host = host or os.environ.get("OLLAMA_HOST", "http://127.0.0.1:11434")
+        raw_host = raw_host.strip()
+        if not (raw_host.startswith("http://") or raw_host.startswith("https://")):
+            raw_host = f"http://{raw_host}"
+        raw_host = raw_host.rstrip("/")
+
+        parsed = urllib.parse.urlparse(raw_host)
+        hostname = (parsed.hostname or "").lower()
+        allow_remote = allow_remote or (os.environ.get("OLLAMA_ALLOW_REMOTE", "0") == "1")
+
+        if hostname not in ("127.0.0.1", "localhost", "::1"):
+            if not allow_remote:
+                logger.warning(
+                    f"Non-loopback Ollama host '{hostname}' rejected for offline safety. Falling back to http://127.0.0.1:11434"
+                )
+                raw_host = "http://127.0.0.1:11434"
+            elif parsed.scheme != "https":
+                logger.warning("Remote Ollama host requires HTTPS. Falling back to http://127.0.0.1:11434")
+                raw_host = "http://127.0.0.1:11434"
+
+        self.host = raw_host
         self.default_model = default_model
         self._last_health_check = 0.0
         self._is_online = False
@@ -39,8 +60,8 @@ class JarvisLocalLLM:
     def is_available(self, timeout: float = 1.2) -> bool:
         """Check if local Ollama/inference server is reachable."""
         now = time.time()
-        # Cache health check for 15 seconds to avoid excessive polling
-        if (now - self._last_health_check) < 15.0:
+        # Cache health check for 15 seconds to avoid excessive polling when online
+        if (now - self._last_health_check) < 15.0 and self._is_online:
             return self._is_online
 
         self._last_health_check = now
@@ -54,8 +75,12 @@ class JarvisLocalLLM:
                     self._is_online = True
                     logger.info(f"🟢 Local LLM Server Online at {self.host} ({len(self._available_models)} models loaded)")
                     return True
+                else:
+                    self._is_online = False
+                    self._available_models = []
         except Exception:
             self._is_online = False
+            self._available_models = []
 
         return False
 

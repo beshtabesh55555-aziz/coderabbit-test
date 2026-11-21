@@ -418,16 +418,16 @@ class JarvisCore:
             snapshot_path = kwargs.get("snapshot_path")
         logger.info(f"[SECURITY EVENT] Motion detected! Snapshot: {snapshot_path}")
 
-        sec_status = self.system.get_security_status() if self.system else "Unknown"
-        is_unlocked = (sec_status == "Active (Unlocked)")
+        lock_status = self.system.get_lock_status() if self.system else {}
+        is_confirmed_locked = bool(lock_status.get("is_locked") is True and not lock_status.get("error"))
         is_armed = self.telegram.is_armed() if self.telegram else False
+        sec_status = "LOCKED" if is_confirmed_locked else "UNLOCKED"
 
-        # STRICT SUPPRESSION: If workstation is Active (Unlocked), the user is actively working!
-        # Motion alerts must ONLY be sent when the screen is LOCKED or user is away.
-        if is_unlocked or not is_armed:
+        # STRICT SUPPRESSION: Motion alerts must ONLY be sent when lock probe confirms screen is LOCKED and Telegram is armed
+        if not (is_confirmed_locked and is_armed):
             logger.info(
-                f"[SECURITY INFO] Motion detected but workstation is {sec_status} (Armed={is_armed}). "
-                "Foydalanuvchi kompyuter qarshisida o'tiribdi. Motion alert to'liq bekor qilindi."
+                f"[SECURITY INFO] Motion detected but workstation is not confirmed locked (locked={lock_status.get('is_locked')}, error={lock_status.get('error')}, armed={is_armed}). "
+                "Foydalanuvchi kompyuter qarshisida yoki holat noaniq. Motion alert to'liq bekor qilindi."
             )
             try:
                 if snapshot_path and os.path.exists(snapshot_path):
@@ -536,8 +536,9 @@ class JarvisCore:
         """Execute the resolved action after user disambiguation."""
         action = resolved.get("action", "")
         intent = resolved.get("intent", "")
-        kwargs = resolved.get("kwargs", {})
-        metric = kwargs.get("metric") or resolved.get("metric", "")
+        params = resolved.get("params") or resolved.get("kwargs") or {}
+        kwargs = params
+        metric = params.get("metric") or resolved.get("metric") or ""
         target_uid = user_id or resolved.get("user_id")
 
         # 1. Storage Metric Resolution (RAM vs Disk vs Both)
@@ -909,12 +910,7 @@ class JarvisCore:
 
         # Sensitive Data Exposure Gate (CWE-532 / CWE-200):
         # Route actual credential submissions through dedicated local handler before logging, recording, or tracing
-        m_pin = re.search(r'\b(?:parol|kod|pin|parolim|kodim)\b\s*[:=]\s*([a-zA-Z0-9!@#\$%\^&*_\-]{3,})', raw_query, re.IGNORECASE)
-        if not m_pin:
-            m_pin = re.search(r'\b(?:parol|kod|pin)\b\s+([0-9]{4,8})\b', raw_query, re.IGNORECASE)
-        pin_val = m_pin.group(1).strip() if m_pin else None
-        if pin_val and pin_val.lower() in ["kirit", "kiritish", "sorash", "so'rash", "ochish", "bilan", "nima", "qanday", "berish", "yozish"]:
-            pin_val = None
+        pin_val = self._extract_credential(raw_query)
 
         if pin_val:
             logger.info(f"Processing command: '[REDACTED CREDENTIAL SUBMISSION]' (speak_output={speak_output}, user_id={uid})")
@@ -1268,7 +1264,7 @@ class JarvisCore:
                                 return p_msg
 
                             # Anti-Hallucination Verification Gate: If physical verification explicitly failed, block success reply!
-                            if v_record and v_record.get("verified") is True and v_record.get("verified_success") is False:
+                            if v_record and v_record.get("verified_success") is False:
                                 fail_reason = v_record.get("reason", "Amal tizimda fizik tasdiqlanmadi")
                                 fail_msg = f"Kechirasiz, {fail_reason}."
                                 self.tracer.complete_trace(trace_ctx, fail_msg, status="verification_failed")
@@ -1323,19 +1319,30 @@ class JarvisCore:
 
                     if pending_fcs:
                         logger.warning(f"Tool round limit reached with pending tool calls: {pending_fcs}")
-                        successful_names = [
-                            fn for fn, _, res, v in executed_tools
-                            if (v and v.get("verified_success") is True) or (isinstance(res, dict) and res.get("success") is True)
-                        ]
-                        failed_names = [
-                            fn for fn, _, res, v in executed_tools
-                            if (v and v.get("verified_success") is False) or (isinstance(res, dict) and res.get("success") is False)
-                        ]
-                        completed_str = ", ".join(successful_names) if successful_names else "hech qaysi"
-                        pending_str = ", ".join(pending_fcs)
-                        status_details = f"Muvaffaqiyatli: {completed_str}"
+                        successful_names = []
+                        failed_names = []
+                        unverified_names = []
+                        for fn, _, res, v in executed_tools:
+                            if v and v.get("verified_success") is False:
+                                failed_names.append(fn)
+                            elif isinstance(res, dict) and res.get("success") is False:
+                                failed_names.append(fn)
+                            elif v and v.get("verified_success") is True:
+                                successful_names.append(fn)
+                            elif isinstance(res, dict) and res.get("success") is True:
+                                unverified_names.append(fn)
+                            else:
+                                failed_names.append(fn)
+
+                        completed_parts = []
+                        if successful_names:
+                            completed_parts.append(f"Muvaffaqiyatli: {', '.join(successful_names)}")
+                        if unverified_names:
+                            completed_parts.append(f"Bajarildi (tekshiruvsiz): {', '.join(unverified_names)}")
                         if failed_names:
-                            status_details += f"; Xatolik yuz berdi: {', '.join(failed_names)}"
+                            completed_parts.append(f"Xatolik: {', '.join(failed_names)}")
+                        status_details = "; ".join(completed_parts) if completed_parts else "amallar yakunlanmadi"
+                        pending_str = ", ".join(pending_fcs)
                         incomplete_reply = f"Amallar qisman bajarildi ({status_details}). Biroq limit sababli quyidagilar bajarilmadi: {pending_str}."
                         self.tracer.complete_trace(trace_ctx, incomplete_reply, status="partially_completed")
                         _speak_if_allowed(incomplete_reply)
@@ -1884,15 +1891,23 @@ class JarvisCore:
                 m_coords = re.search(r'(\d+)\s*(?:ga|x|va|,)\s*(\d+)', q)
                 if m_coords:
                     mx, my = int(m_coords.group(1)), int(m_coords.group(2))
-                    res = self.desktop.mouse_move(mx, my, smooth=True)
+                    try:
+                        res = self.desktop.mouse_move(mx, my, smooth=True)
+                    except Exception as desk_err:
+                        res = {"success": False, "error": str(desk_err)}
+
                     actual_x = res.get("x") if isinstance(res, dict) else None
                     actual_y = res.get("y") if isinstance(res, dict) else None
                     if res.get("success") and actual_x is not None and actual_y is not None:
                         reply = f"Sichqoncha kursorini ({actual_x}, {actual_y}) koordinatasiga siljitdim."
                     elif actual_x is not None and actual_y is not None:
                         reply = f"Kursor ({actual_x}, {actual_y}) koordinatasiga yetdi (mo'ljal: {mx}, {my})."
+                    elif res.get("moved_only"):
+                        reply = f"Kursor ({mx}, {my}) tomon siljitildi, biroq yakuniy koordinatani o'qib bo'lmadi."
+                    elif res.get("error"):
+                        reply = f"Kursor holatini aniqlashda xatolik yuz berdi: {res.get('error')}."
                     else:
-                        reply = "Kursor harakatlantirilmadi, desktop interfeysi xatosi yuz berdi."
+                        reply = "Kursor siljitildi, biroq yakuniy pozitsiyani tasdiqlab bo'lmadi."
                 else:
                     reply = "Iltimos, kursor koordinatasini ko'rsating (masalan: 'kursorni siljit 500x300')."
             _speak_if_allowed(reply)
@@ -2145,16 +2160,31 @@ class JarvisCore:
             logger.info("Stopping JARVIS...")
             self.stop()
 
-    @staticmethod
-    def _redact_voice_transcript(text: str) -> str:
-        """Replace sensitive credential transcripts with fixed redaction message."""
+    @classmethod
+    def _extract_credential(cls, text: str) -> Optional[str]:
+        """Extract credential/PIN from user text if present, supporting := or space separator."""
+        if not text:
+            return None
+        # Pattern 1: Explicit separator (:= or =)
         m = re.search(r'\b(?:parol|kod|pin|parolim|kodim)\b\s*[:=]\s*([a-zA-Z0-9!@#\$%\^&*_\-]{3,})', text, re.IGNORECASE)
+        # Pattern 2: Space separator (including alphanumeric passwords/PINs)
         if not m:
-            m = re.search(r'\b(?:parol|kod|pin)\b\s+([0-9]{4,8})\b', text, re.IGNORECASE)
-        if m:
-            val = m.group(1).strip()
-            if val.lower() not in ["kirit", "kiritish", "sorash", "so'rash", "ochish", "bilan", "nima", "qanday", "berish", "yozish"]:
-                return "[REDACTED CREDENTIAL SUBMISSION]"
+            m = re.search(r'\b(?:parol|kod|pin|parolim|kodim)\b\s+([a-zA-Z0-9!@#\$%\^&*_\-]{3,32})\b', text, re.IGNORECASE)
+        if not m:
+            return None
+        val = m.group(1).strip()
+        non_creds = {"kirit", "kiritish", "sorash", "so'rash", "ochish", "bilan", "nima", "qanday", "berish", "yozish", "ornatish", "o'rnatish"}
+        if val.lower() in non_creds:
+            return None
+        return val
+
+    @classmethod
+    def _redact_voice_transcript(cls, text: str) -> str:
+        """Replace sensitive credential transcripts with fixed redaction message."""
+        if not text:
+            return ""
+        if cls._extract_credential(text):
+            return "[REDACTED CREDENTIAL SUBMISSION]"
         return text
 
     def _voice_loop(self):

@@ -77,6 +77,7 @@ class SafetyManager:
         "roziman",
         "ha albatta",
         "ha bajar",
+        "ha bajargin",
     }
 
     NEGATIVE_KEYWORDS = {
@@ -228,30 +229,22 @@ class SafetyManager:
         clean_norm = re.sub(r'^[^\w\'\`\’]+|[^\w\'\`\’]+$', '', clean).strip()
 
         # 1. Check Negative first to ensure fast, safe abortion
-        is_negative = (
-            clean_norm in self.NEGATIVE_KEYWORDS
-            or any(clean_norm.startswith(neg + " ") or clean_norm == neg for neg in self.NEGATIVE_KEYWORDS)
-            or any(w in clean_norm for w in ["bekor", "kerak emas", "kerakmas", "rad et", "yo'q", "yoq", "cancel"])
-        )
+        is_negative = clean_norm in self.NEGATIVE_KEYWORDS
 
         if is_negative:
             with self._lock:
-                self._pending = None
+                if self._pending is pending:
+                    self._pending = None
             logger.info(f"[SAFETY GATE DENIED] User declined: '{reply_text}'. Action aborted.")
             return f"❌ Amal bekor qilindi. <b>{pending.description}</b> bajarilmadi."
 
-        # 2. Check Affirmative
-        is_affirmative = (
-            clean_norm in self.AFFIRMATIVE_KEYWORDS
-            or any(clean_norm.startswith(aff + " ") or clean_norm == aff for aff in self.AFFIRMATIVE_KEYWORDS)
-            or any(w in clean_norm for w in ["tasdiqlayman", "albatta", "tasdiqlash"])
-            or clean_norm == "ha"
-            or clean_norm.startswith("ha,")
-            or clean_norm.startswith("ha ")
-        )
+        # 2. Check Affirmative from bounded set only
+        is_affirmative = clean_norm in self.AFFIRMATIVE_KEYWORDS
 
         if is_affirmative:
             with self._lock:
+                if self._pending is not pending or pending.is_expired():
+                    return f"⚠️ Tasdiqlash vaqti tugadi yoki amal o'zgardi. <b>{pending.description}</b> bajarilmadi."
                 self._pending = None
 
             logger.info(f"[SAFETY GATE CONFIRMED] User confirmed: '{reply_text}'. Executing callback...")

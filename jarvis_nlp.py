@@ -193,10 +193,13 @@ class UzbekNLPPreprocessor:
             r"\b(?:ram|operativka|operativ|ozu|tezkor\s+xotira)(?:[a-zA-Z\']*)\b", low
         )) or any(w in low for w in ["tezkor xotira", "operativ xotira"])
 
-        # Robust stem + suffix matching for DISK
-        has_disk = bool(re.search(
+        # Robust stem + suffix matching for explicit DISK
+        has_explicit_disk = bool(re.search(
             r"\b(?:disk|ssd|hdd|qattiq\s+disk|fleshka|flesh|vinchester)(?:[a-zA-Z\']*)\b", low
-        )) or any(w in low for w in ["qattiq disk", "bo'sh joy", "bosh joy", "xotira bo'sh joyi", "c disk", "d disk"])
+        )) or any(w in low for w in ["qattiq disk", "c disk", "d disk"])
+
+        has_generic_space = any(w in low for w in ["bo'sh joy", "bosh joy", "xotira bo'sh joyi"])
+        has_disk = has_explicit_disk or (has_generic_space and not has_ram)
 
         if has_ram and has_disk:
             return "BOTH"
@@ -611,7 +614,23 @@ class AmbiguityEngine:
         elif cb.startswith("clarify:recipient:"):
             rec = callback_data.split(":", 2)[2]
             orig_low = (original_query or "").lower()
-            if any(w in orig_low for w in ["uni", "buni", "faylni", "rasmni", "skrinshot"]):
+
+            # Check if original query specifically names a concrete file
+            file_match = re.search(r'([a-zA-Z0-9_\-\u0400-\u04FF]+\.(?:pdf|txt|docx?|xlsx?|pptx?|png|jpe?g|zip|rar))\b', original_query or "", re.IGNORECASE)
+            if file_match:
+                filename = file_match.group(1)
+                return {
+                    "status": "resolved",
+                    "intent": "SEND_FILE",
+                    "recipient": rec,
+                    "resolved_query": f"{filename} faylini {rec} ga yubor",
+                    "action": "send_file",
+                    "kwargs": {"recipient": rec, "filename": filename, "file_path": filename},
+                    "message": f"{filename} fayli {rec} ga yuborilmoqda."
+                }
+
+            # Check if referring to last file / screenshot
+            if any(w in orig_low for w in ["oxirgi", "oxirgi fayl", "oxirgi rasm", "oxirgi skrinshot", "oxirgisini", "uni", "buni", "skrinshot"]):
                 return {
                     "status": "resolved",
                     "intent": "FORWARD_LAST_FILE",
@@ -621,6 +640,32 @@ class AmbiguityEngine:
                     "kwargs": {"recipient": rec},
                     "message": f"Oxirgi fayl {rec} ga yuborilmoqda."
                 }
+
+            # Extract possible message text already present in original request
+            extracted_msg = ""
+            deb_match = re.search(r"(.+?)\s+deb\s+(?:yoz|yubor)", original_query or "", re.IGNORECASE)
+            if deb_match:
+                extracted_msg = deb_match.group(1).strip()
+                extracted_msg = re.sub(r'@[a-zA-Z0-9_]+', '', extracted_msg).strip()
+                extracted_msg = extracted_msg.strip("'\"‘“’”").strip()
+            else:
+                quote_match = re.search(r"[\"“](.*?)[\"”]", original_query or "")
+                if not quote_match:
+                    quote_match = re.search(r"['‘](.*?)['’]", original_query or "")
+                if quote_match:
+                    extracted_msg = quote_match.group(1).strip()
+
+            if extracted_msg:
+                return {
+                    "status": "resolved",
+                    "intent": "SEND_MESSAGE",
+                    "recipient": rec,
+                    "resolved_query": f"{rec} ga '{extracted_msg}' deb yubor",
+                    "action": "send_user_telegram_message",
+                    "kwargs": {"recipient": rec, "message": extracted_msg},
+                    "message": f"{rec} ga xabar yuborilmoqda: \"{extracted_msg}\""
+                }
+
             return {
                 "status": "resolved",
                 "intent": "SEND_MESSAGE",

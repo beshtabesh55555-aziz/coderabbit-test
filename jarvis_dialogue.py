@@ -86,14 +86,15 @@ class JarvisDialogueManager:
 
     def _save_all_unlocked(self, states: Dict[str, Dict[str, Any]]) -> None:
         """Atomically persist states dictionary (must be called inside lock)."""
+        self.state_file.parent.mkdir(parents=True, exist_ok=True)
+        tmp_file = self.state_file.with_suffix(".tmp")
         try:
-            self.state_file.parent.mkdir(parents=True, exist_ok=True)
-            tmp_file = self.state_file.with_suffix(".tmp")
             with open(tmp_file, "w", encoding="utf-8") as f:
                 json.dump(states, f, indent=2, ensure_ascii=False)
             tmp_file.replace(self.state_file)
         except Exception as e:
             logger.error(f"Error saving dialogue state to {self.state_file}: {e}", exc_info=True)
+            raise RuntimeError(f"Failed to persist dialogue state: {e}") from e
 
     # =========================================================================
     # State Management & TTL
@@ -154,7 +155,13 @@ class JarvisDialogueManager:
 
         with self._lock:
             states = self._load_all_unlocked()
-            states[uid] = record
+            user_entry = states.setdefault(uid, {
+                "user_id": uid,
+                "created_at": now,
+                "context": {},
+                "chat_history": []
+            })
+            user_entry["pending_clarification"] = record
             self._save_all_unlocked(states)
 
         logger.info(
@@ -177,15 +184,18 @@ class JarvisDialogueManager:
         uid = str(user_id).strip()
         with self._lock:
             states = self._load_all_unlocked()
-            record = states.get(uid)
+            user_entry = states.get(uid)
+            if not user_entry:
+                return None
+            record = user_entry.get("pending_clarification")
             if not record:
                 return None
 
             now = time.time()
             expires_at = float(record.get("expires_at", 0))
             if now > expires_at:
-                logger.info(f"Clarification state for user {uid} expired (TTL exceeded). Purging state.")
-                del states[uid]
+                logger.info(f"Clarification state for user {uid} expired (TTL exceeded). Purging prompt.")
+                user_entry["pending_clarification"] = None
                 self._save_all_unlocked(states)
                 return None
 
@@ -214,8 +224,9 @@ class JarvisDialogueManager:
         uid = str(user_id).strip()
         with self._lock:
             states = self._load_all_unlocked()
-            if uid in states:
-                del states[uid]
+            user_entry = states.get(uid)
+            if user_entry and user_entry.get("pending_clarification"):
+                user_entry["pending_clarification"] = None
                 self._save_all_unlocked(states)
                 logger.info(f"Cleared pending clarification for user {uid}.")
                 return True
@@ -231,16 +242,14 @@ class JarvisDialogueManager:
         removed = 0
         with self._lock:
             states = self._load_all_unlocked()
-            keys_to_delete = [
-                uid for uid, rec in states.items()
-                if now > float(rec.get("expires_at", 0))
-            ]
-            for uid in keys_to_delete:
-                del states[uid]
-                removed += 1
+            for uid, user_entry in states.items():
+                rec = user_entry.get("pending_clarification")
+                if rec and now > float(rec.get("expires_at", 0)):
+                    user_entry["pending_clarification"] = None
+                    removed += 1
             if removed > 0:
                 self._save_all_unlocked(states)
-                logger.info(f"Cleaned up {removed} expired dialogue state(s).")
+                logger.info(f"Cleaned up {removed} expired clarification prompt(s).")
         return removed
 
     def update_context(self, user_id: Union[str, int], **kwargs) -> Dict[str, Any]:
@@ -390,6 +399,13 @@ class JarvisDialogueManager:
 
         # Step 1: Map user answer to a canonical callback_data string
         callback_data = self._map_answer_to_callback(answer_raw, ambiguity_type, options)
+        if callback_data == "invalid_choice":
+            return {
+                "status": "unresolved",
+                "user_id": uid,
+                "message": "Taklif qilingan variantlardan birini tanlang.",
+                "pending": True
+            }
 
         # Step 2: Use AmbiguityEngine or internal rule resolver to form resolution
         resolved_details = None
@@ -401,6 +417,14 @@ class JarvisDialogueManager:
 
         if not resolved_details or resolved_details.get("status") == "unresolved":
             resolved_details = self._internal_resolve(orig_query, callback_data, ambiguity_type, original_intent)
+
+        if not resolved_details or resolved_details.get("status") != "resolved":
+            return {
+                "status": "unresolved",
+                "user_id": uid,
+                "message": "Taklif qilingan variantlardan birini tanlang.",
+                "pending": True
+            }
 
         # Step 3: Combine with context data (e.g. recipient from context_data or original_query)
         params = dict(resolved_details.get("kwargs") or resolved_details.get("params") or {})
@@ -442,6 +466,8 @@ class JarvisDialogueManager:
             "intent": intent,
             "action": action,
             "params": params,
+            "kwargs": params,
+            "metric": params.get("metric"),
             "original_query": orig_query,
             "ambiguity_type": ambiguity_type,
             "user_answer": answer_raw,
@@ -450,7 +476,15 @@ class JarvisDialogueManager:
         }
 
         # Step 4: Clear pending state now that resolution succeeded
-        self.clear_pending(uid)
+        cleared = self.clear_pending(uid)
+        if not cleared:
+            logger.warning(f"Clarification resolution collision/race condition for user {uid}")
+            return {
+                "status": "already_handled",
+                "user_id": uid,
+                "message": "Ushbu so'rov allaqachon bajarilgan."
+            }
+
         logger.info(f"Clarification successfully resolved for user {uid} -> action: {action}, intent: {intent}")
         return result
 
@@ -466,6 +500,10 @@ class JarvisDialogueManager:
 
         # 1. Already a callback_data
         if clean.startswith("clarify:"):
+            valid_cbs = {opt.get("callback_data") for opt in options if isinstance(opt, dict) and opt.get("callback_data")}
+            if valid_cbs and clean not in valid_cbs:
+                logger.warning(f"Callback '{clean}' does not match active options: {valid_cbs}")
+                return "invalid_choice"
             return clean
 
         # 2. Number index selection (e.g. '1', '2', '3')
@@ -558,6 +596,15 @@ class JarvisDialogueManager:
                 "resolved_query": "Ish stoli (Desktop) papkasidagi fayllarni ko'rsat",
                 "kwargs": {"type": "desktop_file"},
                 "message": "Ish stolidagi fayllar ro'yxati tekshirilmoqda.",
+            }
+        elif cb == "clarify:recent_contacts":
+            return {
+                "status": "resolved",
+                "intent": "LIST_RECENT_CONTACTS",
+                "action": "list_recent_contacts",
+                "resolved_query": "So'nggi kontaktlarni ko'rsat",
+                "kwargs": {},
+                "message": "So'nggi muloqot qilingan kontaktlar ro'yxati olinmoqda.",
             }
         elif cb.startswith("clarify:recipient:"):
             rec = callback_data.split(":", 2)[2]
