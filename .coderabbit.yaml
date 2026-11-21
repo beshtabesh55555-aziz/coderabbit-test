@@ -1,0 +1,6 @@
+﻿# CodeRabbit configuration
+reviews:
+  profile: "chill"
+  request_changes_workflow: false
+  high_level_summary: true
+  poem: true
