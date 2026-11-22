@@ -1,0 +1,1883 @@
+<!DOCTYPE html>
+<html lang="uz" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
+  <title>Monika AI — 21st Century Glassmorphism Command Center</title>
+
+  <!-- PWA Meta Tags & Manifest -->
+  <link rel="manifest" href="/manifest.json">
+  <meta name="theme-color" content="#050811">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Monika AI">
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
+  <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192x192.png">
+  <link rel="icon" type="image/png" sizes="512x512" href="/icons/icon-512x512.png">
+
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- Telegram WebApp SDK -->
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+
+  <!-- Marked.js for fast Markdown parsing -->
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+
+  <!-- Google Fonts: Inter & JetBrains Mono -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', '-apple-system', 'BlinkMacSystemFont', 'sans-serif'],
+            mono: ['JetBrains Mono', 'monospace'],
+          },
+          colors: {
+            obsidian: '#050811',
+            obsidianSurface: '#090e1d',
+            obsidianElevated: '#0f172a',
+            cyanAccent: '#06b6d4',
+            violetAccent: '#8b5cf6',
+            emeraldAccent: '#10b981',
+            crimsonAccent: '#ef4444',
+            amberAccent: '#f59e0b',
+          }
+        }
+      }
+    }
+  </script>
+
+  <style>
+    /* ========================================================================= */
+    /* 21st-Century Dark Glassmorphism Styling System                           */
+    /* ========================================================================= */
+    :root {
+      --bg-base: #050811;
+      --glass-bg: rgba(11, 16, 30, 0.68);
+      --glass-panel: rgba(15, 23, 42, 0.65);
+      --glass-card: rgba(13, 20, 38, 0.72);
+      --glass-border: rgba(255, 255, 255, 0.08);
+      --glass-border-specular: rgba(255, 255, 255, 0.15);
+      --glass-glow-cyan: rgba(6, 182, 212, 0.22);
+      --glass-glow-violet: rgba(139, 92, 246, 0.22);
+      --glass-glow-crimson: rgba(239, 68, 68, 0.25);
+      --glass-glow-emerald: rgba(16, 185, 129, 0.25);
+    }
+
+    /* Custom Sleek Scrollbar */
+    ::-webkit-scrollbar { width: 5px; height: 5px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: rgba(148, 163, 184, 0.25); border-radius: 9999px; }
+    ::-webkit-scrollbar-thumb:hover { background: rgba(6, 182, 212, 0.5); }
+
+    body {
+      background-color: var(--bg-base);
+      background-image: 
+        radial-gradient(circle at 10% 5%, rgba(6, 182, 212, 0.12) 0%, transparent 40%),
+        radial-gradient(circle at 90% 12%, rgba(139, 92, 246, 0.12) 0%, transparent 42%),
+        radial-gradient(circle at 50% 95%, rgba(16, 185, 129, 0.08) 0%, transparent 45%);
+      background-attachment: fixed;
+      font-family: 'Inter', sans-serif;
+      touch-action: manipulation;
+    }
+
+    /* Frosted Glass Layers */
+    .glass-surface {
+      background: var(--glass-bg);
+      backdrop-filter: blur(20px) saturate(180%);
+      -webkit-backdrop-filter: blur(20px) saturate(180%);
+      border: 1px solid var(--glass-border);
+    }
+
+    .glass-panel {
+      background: var(--glass-panel);
+      backdrop-filter: blur(20px) saturate(180%);
+      -webkit-backdrop-filter: blur(20px) saturate(180%);
+      border: 1px solid var(--glass-border);
+      box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.6);
+    }
+
+    .glass-card {
+      background: var(--glass-card);
+      backdrop-filter: blur(20px) saturate(180%);
+      -webkit-backdrop-filter: blur(20px) saturate(180%);
+      border: 1px solid var(--glass-border);
+      box-shadow: 0 8px 24px -6px rgba(0, 0, 0, 0.5);
+      transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .glass-card:hover {
+      border-color: rgba(255, 255, 255, 0.14);
+      box-shadow: 0 12px 32px -8px rgba(0, 0, 0, 0.7);
+    }
+
+    .glass-button-cyan {
+      background: linear-gradient(135deg, rgba(6, 182, 212, 0.18), rgba(14, 116, 144, 0.25));
+      border: 1px solid rgba(6, 182, 212, 0.35);
+      color: #67e8f9;
+      backdrop-filter: blur(12px);
+      transition: all 0.2s ease;
+    }
+    .glass-button-cyan:hover {
+      background: linear-gradient(135deg, rgba(6, 182, 212, 0.3), rgba(14, 116, 144, 0.4));
+      border-color: rgba(6, 182, 212, 0.6);
+      box-shadow: 0 0 16px var(--glass-glow-cyan);
+      color: #ffffff;
+    }
+
+    .glass-button-crimson {
+      background: linear-gradient(135deg, rgba(239, 68, 68, 0.18), rgba(185, 28, 28, 0.25));
+      border: 1px solid rgba(239, 68, 68, 0.35);
+      color: #fca5a5;
+      backdrop-filter: blur(12px);
+      transition: all 0.2s ease;
+    }
+    .glass-button-crimson:hover {
+      background: linear-gradient(135deg, rgba(239, 68, 68, 0.3), rgba(185, 28, 28, 0.4));
+      border-color: rgba(239, 68, 68, 0.6);
+      box-shadow: 0 0 16px var(--glass-glow-crimson);
+      color: #ffffff;
+    }
+
+    .glass-button-emerald {
+      background: linear-gradient(135deg, rgba(16, 185, 129, 0.18), rgba(4, 120, 87, 0.25));
+      border: 1px solid rgba(16, 185, 129, 0.35);
+      color: #6ee7b7;
+      backdrop-filter: blur(12px);
+      transition: all 0.2s ease;
+    }
+    .glass-button-emerald:hover {
+      background: linear-gradient(135deg, rgba(16, 185, 129, 0.3), rgba(4, 120, 87, 0.4));
+      border-color: rgba(16, 185, 129, 0.6);
+      box-shadow: 0 0 16px var(--glass-glow-emerald);
+      color: #ffffff;
+    }
+
+    /* Specular Glow Borders */
+    .specular-border {
+      position: relative;
+    }
+    .specular-border::before {
+      content: '';
+      position: absolute;
+      inset: -1px;
+      border-radius: inherit;
+      padding: 1px;
+      background: linear-gradient(135deg, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0.02) 60%, rgba(6, 182, 212, 0.25));
+      -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+      -webkit-mask-composite: xor;
+      mask-composite: exclude;
+      pointer-events: none;
+    }
+
+    /* Markdown Code & Content Styling */
+    .prose-glass pre {
+      background: #080c18;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 0.75rem;
+      padding: 0.85rem;
+      overflow-x: auto;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.78rem;
+      position: relative;
+      margin: 0.5rem 0;
+    }
+    .prose-glass code {
+      font-family: 'JetBrains Mono', monospace;
+      color: #38bdf8;
+      font-size: 0.85em;
+    }
+    .prose-glass p { margin-bottom: 0.45rem; }
+    .prose-glass p:last-child { margin-bottom: 0; }
+    .prose-glass ul { list-style-type: disc; padding-left: 1.25rem; margin-bottom: 0.45rem; }
+    .prose-glass ol { list-style-type: decimal; padding-left: 1.25rem; margin-bottom: 0.45rem; }
+    .prose-glass strong { color: #f1f5f9; font-weight: 600; }
+
+    /* Typing Dots Animation */
+    .typing-dot {
+      animation: typing-bounce 1.4s infinite ease-in-out both;
+    }
+    .typing-dot:nth-child(1) { animation-delay: -0.32s; }
+    .typing-dot:nth-child(2) { animation-delay: -0.16s; }
+    @keyframes typing-bounce {
+      0%, 80%, 100% { transform: scale(0); opacity: 0.3; }
+      40% { transform: scale(1); opacity: 1; }
+    }
+
+    /* Safe Area insets */
+    .pb-safe { padding-bottom: max(1rem, env(safe-area-inset-bottom)); }
+    .pt-safe { padding-top: max(0.6rem, env(safe-area-inset-top)); }
+
+    /* Accessibility: Reduced Motion */
+    @media (prefers-reduced-motion: reduce) {
+      *, ::before, ::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
+      }
+    }
+  </style>
+</head>
+<body class="flex flex-col h-screen overflow-hidden text-slate-100 select-none bg-obsidian">
+
+  <!-- Floating Toast Notifications Container -->
+  <div id="toast-container" class="fixed top-14 left-1/2 -translate-x-1/2 z-50 flex flex-col items-center gap-2 pointer-events-none w-11/12 max-w-sm"></div>
+
+  <!-- ===================================================================== -->
+  <!-- Ultra-Sleek Minimalist Header (Apple / Linear Aesthetic)               -->
+  <!-- ===================================================================== -->
+  <header class="sticky top-0 z-40 px-4 py-3 flex items-center justify-between border-b border-white/[0.06] bg-[#070b14]/85 backdrop-blur-2xl pt-safe shadow-sm">
+    <div class="flex items-center gap-3">
+      <!-- Monika Avatar with Reactive Status -->
+      <div class="relative cursor-pointer group" onclick="openSystemMenuSheet()">
+        <img src="/monika_avatar.jpg" alt="Monika Avatar" class="w-9 h-9 rounded-full object-cover ring-1 ring-white/20 shadow-md transition group-hover:scale-105" onerror="this.style.display='none'; document.getElementById('avatar-fallback').style.display='flex';">
+        <div id="avatar-fallback" class="hidden w-9 h-9 rounded-full bg-slate-800 items-center justify-center font-bold text-xs text-white">M</div>
+        <span class="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 bg-emerald-500 ring-2 ring-[#070b14] rounded-full transition-colors duration-300" id="header-status-dot"></span>
+      </div>
+
+      <div>
+        <div class="flex items-center gap-2">
+          <h1 class="text-sm font-semibold tracking-tight text-white">Monika</h1>
+          <!-- Header Status Badge -->
+          <div id="header-lock-badge" class="px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 flex items-center gap-1.5">
+            <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" id="header-lock-dot"></span>
+            <span id="header-lock-text">FAOL / XAVFSIZ</span>
+          </div>
+        </div>
+        <p class="text-[11px] text-slate-400 font-normal truncate max-w-[170px] sm:max-w-xs" id="header-subtitle">Tayyor</p>
+      </div>
+    </div>
+    
+    <!-- Header Minimal Controls -->
+    <div class="flex items-center gap-2">
+      <!-- Dynamic Security Button (Lock) -->
+      <button id="btn-header-lock" onclick="executeScreenLock()" class="px-3 py-1.5 rounded-full bg-white/[0.08] hover:bg-white/[0.14] border border-white/10 text-slate-200 text-xs font-medium flex items-center gap-1.5 transition active:scale-95 shadow-sm" title="Ekranni bloklash">
+        <span>🔒</span>
+        <span class="hidden sm:inline">Qulflash</span>
+      </button>
+
+      <!-- Dynamic Security Button (Unlock) -->
+      <button id="btn-header-unlock" onclick="openPinModal()" class="hidden px-3 py-1.5 rounded-full bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 text-emerald-300 text-xs font-medium flex items-center gap-1.5 transition active:scale-95 shadow-sm" title="PIN bilan ochish">
+        <span>🔓</span>
+        <span class="hidden sm:inline">Ochish</span>
+      </button>
+
+      <!-- 3-Dots System Menu Trigger -->
+      <button onclick="openSystemMenuSheet()" class="p-2 rounded-full text-slate-400 hover:text-white hover:bg-white/10 transition active:scale-95" title="Boshqaruv menyusi">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z"/></svg>
+      </button>
+
+      <!-- Hidden compatibility hooks -->
+      <button id="refresh-icon" onclick="refreshData(true)" class="hidden"></button>
+    </div>
+  </header>
+
+  <!-- Sleek Floating PWA Install Toast (Non-intrusive) -->
+  <div id="pwa-install-banner" class="hidden fixed bottom-20 left-4 right-4 z-40 max-w-sm mx-auto p-3 rounded-2xl bg-[#0c1222]/95 border border-white/10 shadow-2xl backdrop-blur-xl flex items-center justify-between transition-all duration-300">
+    <div class="flex items-center gap-2.5">
+      <div class="w-8 h-8 rounded-xl bg-blue-500/20 text-blue-400 flex items-center justify-center text-sm font-bold border border-blue-500/30">
+        📲
+      </div>
+      <div>
+        <p class="text-xs font-semibold text-white">Monika PWA</p>
+        <p class="text-[10px] text-slate-400">Tezkor ochish uchun ekranga o'rnating</p>
+      </div>
+    </div>
+    <div class="flex items-center gap-1.5">
+      <button onclick="installPWA()" class="px-2.5 py-1 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-[11px] font-medium shadow-md transition active:scale-95">
+        O'rnatish
+      </button>
+      <button onclick="dismissInstallBanner()" class="p-1 text-slate-400 hover:text-white transition">
+        ✕
+      </button>
+    </div>
+  </div>
+
+  <!-- ===================================================================== -->
+  <!-- Main Dual-Viewport Command Center Architecture                        -->
+  <!-- Desktop: Split Command Center (Cols 1-7 Chat, Cols 8-12 Telemetry/Hub) -->
+  <!-- Mobile: Responsive Tabbed Navigation (Chat / Dashboard / Memory)      -->
+  <!-- ===================================================================== -->
+  <main class="flex-1 overflow-hidden relative">
+
+    <!-- DESKTOP SPLIT GRID CONTAINER (Active on >= 1024px) -->
+    <div class="h-full w-full lg:grid lg:grid-cols-12 lg:gap-4 lg:p-4">
+
+      <!-- ================================================================= -->
+      <!-- VIEWPORT 1: MONIKA AI CHAT TERMINAL                               -->
+      <!-- Desktop: Left/Center 7-8 columns | Mobile: Fullscreen Tab 1       -->
+      <!-- ================================================================= -->
+      <section id="tab-chat" class="flex flex-col h-full w-full lg:col-span-7 xl:col-span-8 lg:glass-panel lg:rounded-2xl lg:overflow-hidden lg:border lg:border-white/10 relative">
+
+        <!-- Chat Header / Quick Suggestion Chips (Minimalist) -->
+        <div class="px-3 py-2 border-b border-white/[0.04] bg-black/20 overflow-x-auto flex gap-2 scrollbar-none shrink-0 text-xs">
+          <button onclick="sendQuickPrompt('Ekran skrinshotini ol')" class="px-3 py-1.5 rounded-full bg-white/[0.05] hover:bg-white/[0.1] border border-white/[0.08] text-slate-300 transition active:scale-95 shrink-0 flex items-center gap-1.5">
+            <span>📸</span> Skrinshot
+          </button>
+          <button onclick="sendQuickPrompt('Tizim holatini ko\'rsat')" class="px-3 py-1.5 rounded-full bg-white/[0.05] hover:bg-white/[0.1] border border-white/[0.08] text-slate-300 transition active:scale-95 shrink-0 flex items-center gap-1.5">
+            <span>⚡</span> Tizim holati
+          </button>
+          <button onclick="sendQuickPrompt('Fayllarni qidir')" class="px-3 py-1.5 rounded-full bg-white/[0.05] hover:bg-white/[0.1] border border-white/[0.08] text-slate-300 transition active:scale-95 shrink-0 flex items-center gap-1.5">
+            <span>📁</span> Fayllar
+          </button>
+          <button onclick="sendQuickPrompt('O\'qilmagan xabarlarni tekshir')" class="px-3 py-1.5 rounded-full bg-white/[0.05] hover:bg-white/[0.1] border border-white/[0.08] text-slate-300 transition active:scale-95 shrink-0 flex items-center gap-1.5">
+            <span>📬</span> Telegram
+          </button>
+          <button onclick="sendQuickPrompt('Ekranni qulfla')" class="px-3 py-1.5 rounded-full bg-white/[0.05] hover:bg-white/[0.1] border border-white/[0.08] text-slate-300 transition active:scale-95 shrink-0 flex items-center gap-1.5">
+            <span>🔒</span> Ekranni qulfla
+          </button>
+          <button onclick="sendQuickPrompt('Ekranni och')" class="px-3 py-1.5 rounded-full bg-white/[0.05] hover:bg-white/[0.1] border border-white/[0.08] text-slate-300 transition active:scale-95 shrink-0 flex items-center gap-1.5">
+            <span>🔓</span> Ekranni och
+          </button>
+          <button onclick="sendQuickPrompt('Kompyuterda qanday dasturlar bor?')" class="px-3 py-1.5 rounded-full bg-white/[0.05] hover:bg-white/[0.1] border border-white/[0.08] text-slate-300 transition active:scale-95 shrink-0 flex items-center gap-1.5">
+            <span>🚀</span> Dasturlar
+          </button>
+        </div>
+
+        <!-- Messages Stream Container -->
+        <div id="chat-messages" class="flex-1 overflow-y-auto p-4 space-y-3.5 pb-36 lg:pb-28">
+          <!-- Welcome Message -->
+          <div class="flex items-start gap-2.5 max-w-[92%]">
+            <img src="/monika_avatar.jpg" alt="Monika" class="w-8 h-8 rounded-full object-cover shrink-0 mt-0.5 border border-cyan-400/40 shadow-sm" onerror="this.src='/monika_avatar.jpg'">
+            <div class="glass-card rounded-2xl rounded-tl-sm p-3.5 text-xs text-slate-200 border border-cyan-500/20 shadow-lg">
+              <p class="font-semibold text-cyan-300 mb-1 flex items-center gap-1.5">
+                <span>Monika AI</span>
+                <span class="text-[9px] text-slate-400 font-mono font-normal">Mark LV Core</span>
+              </p>
+              <div class="prose-glass leading-relaxed">
+                Assalomu alaykum, Azizbek! Men kompyuteringiz va Telegramingiz bilan to'liq integratsiya qilingan shaxsiy AI yordamchingizman. Istalgan buyruqni bering: skrinshot olish, dasturlarni ochish, tizim holatini tekshirish yoki ekranni qulflash/ochish.
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Typing Indicator -->
+        <div id="typing-indicator" class="hidden absolute bottom-[4.85rem] left-4 z-30 flex items-center gap-2">
+          <img src="/monika_avatar.jpg" alt="Monika" class="w-6 h-6 rounded-full object-cover opacity-80 border border-cyan-400/40">
+          <div class="glass-surface px-3 py-1.5 rounded-full flex items-center gap-1.5 text-[11px] text-cyan-400 font-mono shadow-lg">
+            <span>Monika ishlamoqda</span>
+            <span class="flex gap-1 items-center">
+              <span class="w-1.5 h-1.5 bg-cyan-400 rounded-full typing-dot"></span>
+              <span class="w-1.5 h-1.5 bg-cyan-400 rounded-full typing-dot"></span>
+              <span class="w-1.5 h-1.5 bg-cyan-400 rounded-full typing-dot"></span>
+            </span>
+          </div>
+        </div>
+
+        <!-- Sticky Chat Input Bar -->
+        <div class="absolute bottom-0 left-0 right-0 p-2.5 glass-surface border-t border-white/5 bg-obsidian/95 backdrop-blur-xl z-20 shadow-2xl">
+          <form onsubmit="handleChatSubmit(event)" class="flex items-center gap-1.5 max-w-4xl mx-auto">
+            <!-- New Chat / Clear Button -->
+            <button type="button" onclick="clearChatHistory()" class="p-2.5 rounded-xl bg-slate-800/80 hover:bg-slate-700/80 text-slate-400 hover:text-cyan-400 border border-white/5 transition active:scale-95" title="Yangi Chat boshlash">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+            </button>
+
+            <!-- Chat Input Text Field -->
+            <div class="flex-1 relative flex items-center">
+              <input type="text" id="chat-input" placeholder="Monika bilan suhbatlashing yoki buyruq bering..." autocomplete="off"
+                class="w-full bg-slate-900/90 border border-slate-700/70 focus:border-cyan-400 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-cyan-400 transition font-sans">
+            </div>
+
+            <!-- Voice / Mic Trigger Button -->
+            <button type="button" id="voice-btn" onclick="toggleVoiceInput()" class="p-2.5 rounded-xl bg-slate-800/80 hover:bg-slate-700/80 border border-white/5 text-slate-300 transition active:scale-95" title="Ovozli kiritish (Voice)">
+              <svg class="w-4 h-4" id="mic-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"/></svg>
+            </button>
+
+            <!-- Send Message Button -->
+            <button type="submit" id="send-btn" class="p-2.5 px-3.5 rounded-xl bg-gradient-to-r from-cyan-500 to-indigo-600 hover:from-cyan-400 hover:to-indigo-500 text-white font-semibold text-xs shadow-md shadow-cyan-500/20 transition active:scale-95 flex items-center justify-center">
+              <svg class="w-4 h-4 transform rotate-90" fill="currentColor" viewBox="0 0 20 20"><path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z"/></svg>
+            </button>
+          </form>
+        </div>
+      </section>
+
+
+      <!-- ================================================================= -->
+      <!-- VIEWPORT 2: LIVE SYSTEM MONITORING & CONTROLS HUB                 -->
+      <!-- Desktop: Right/Sidebar 4-5 cols | Mobile: Tab 2 (Boshqaruv)       -->
+      <!-- ================================================================= -->
+      <section id="tab-dashboard" class="hidden lg:flex flex-col h-full w-full lg:col-span-5 xl:col-span-4 overflow-y-auto space-y-4 pb-24 lg:pb-0 pr-0.5">
+
+        <!-- 1. DEDICATED SCREEN LOCK & UNLOCK CONTROLS CARD (FEATURE F10) -->
+        <div class="glass-card rounded-2xl p-4 border border-cyan-500/30 specular-border space-y-3.5 shadow-xl">
+          <div class="flex items-center justify-between border-b border-white/5 pb-2.5">
+            <div class="flex items-center gap-2">
+              <span class="text-base">🛡️</span>
+              <div>
+                <h2 class="text-xs font-bold text-white uppercase tracking-wider">Windows Xavfsizlik Hubi</h2>
+                <span class="text-[10px] text-slate-400 font-mono">Ekran bloklash va uyg'otish boshqaruvi</span>
+              </div>
+            </div>
+            <!-- Dynamic Lock Status Badge -->
+            <div id="card-lock-badge" class="px-2.5 py-1 rounded-full text-[10px] font-mono font-bold flex items-center gap-1.5 bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+              <span id="card-lock-dot" class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+              <span id="card-lock-text">OCHIQ (Faol)</span>
+            </div>
+          </div>
+
+          <!-- Distinct, Dedicated Lock and Unlock Buttons -->
+          <div class="grid grid-cols-2 gap-2.5">
+            <!-- Dedicated Button 1: Lock Workstation -->
+            <button id="btn-dedicated-lock" onclick="executeScreenLock()" class="p-3 rounded-xl glass-button-crimson font-semibold text-xs flex flex-col items-center justify-center gap-1 active:scale-95 transition shadow-lg" role="button" aria-label="Ekranni Bloklash">
+              <div class="flex items-center gap-1.5">
+                <span class="text-base">🔒</span>
+                <span class="font-bold">Ekranni Bloklash</span>
+              </div>
+              <span class="text-[9px] text-red-300/80 font-mono">POST /api/screen/lock</span>
+            </button>
+
+            <!-- Dedicated Button 2: Unlock Workstation via PIN Modal -->
+            <button id="btn-dedicated-unlock" onclick="openPinModal()" class="p-3 rounded-xl glass-button-emerald font-semibold text-xs flex flex-col items-center justify-center gap-1 active:scale-95 transition shadow-lg" role="button" aria-label="PIN Bilan Ochish">
+              <div class="flex items-center gap-1.5">
+                <span class="text-base">🔓</span>
+                <span class="font-bold">PIN Bilan Ochish</span>
+              </div>
+              <span class="text-[9px] text-emerald-300/80 font-mono">POST /api/screen/unlock</span>
+            </button>
+          </div>
+
+          <!-- Direct Screen Lock & Unlock Controls for Comprehensive Suite Compatibility -->
+          <div class="flex items-center justify-between pt-1 border-t border-white/5">
+            <button id="btn-screen-lock" onclick="executeScreenLock()" class="text-[10px] text-red-400 hover:text-red-300 font-mono flex items-center gap-1 transition" role="button" aria-label="Screen Lock Action">
+              <span>🔒 Qulflash</span>
+            </button>
+            <button id="btn-screen-unlock" onclick="openPinModal()" class="text-[10px] text-emerald-400 hover:text-emerald-300 font-mono flex items-center gap-1 transition" role="button" aria-label="Screen Unlock Action">
+              <span>🔓 Ochish</span>
+            </button>
+          </div>
+        </div>
+
+
+        <!-- 2. LIVE SYSTEM TELEMETRY & GAUGES (FEATURE F9 & F11) -->
+        <div class="glass-card rounded-2xl p-4 border border-white/10 space-y-3.5">
+          <div class="flex items-center justify-between border-b border-white/5 pb-2">
+            <h2 class="text-xs font-bold text-cyan-400 uppercase tracking-wider flex items-center gap-1.5">
+              <span>📊 Tizim Telemetriyasi</span>
+            </h2>
+            <span class="text-[10px] font-mono text-slate-400" id="dash-uptime">Uptime: --</span>
+          </div>
+
+          <!-- Active Window Monitor Pill -->
+          <div class="p-2.5 rounded-xl bg-slate-900/80 border border-white/5 flex items-center justify-between">
+            <div class="flex items-center gap-2 overflow-hidden">
+              <span class="text-xs text-cyan-400">🪟</span>
+              <div class="overflow-hidden">
+                <span class="text-[10px] text-slate-400 block">Hozirgi Faol Oyna</span>
+                <span class="text-xs font-medium text-slate-200 truncate block font-mono" id="dash-active-window">Yuklanmoqda...</span>
+              </div>
+            </div>
+            <span class="text-[9px] text-emerald-400 font-mono px-2 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/20">LIVE</span>
+          </div>
+
+          <!-- Visual Progress Telemetry Meters (CPU, RAM, Disk, Battery) -->
+          <div class="grid grid-cols-2 gap-2.5 font-mono">
+            <!-- CPU Meter -->
+            <div class="p-2.5 rounded-xl bg-slate-900/70 border border-white/5 space-y-1.5">
+              <div class="flex justify-between items-center text-[10px]">
+                <span class="text-slate-400">CPU Bandligi</span>
+                <span class="font-bold text-cyan-400" id="dash-cpu">--%</span>
+              </div>
+              <div class="w-full bg-slate-800/80 rounded-full h-2 overflow-hidden">
+                <div id="meter-cpu-bar" class="bg-gradient-to-r from-cyan-500 to-blue-500 h-2 rounded-full transition-all duration-500" style="width: 0%"></div>
+              </div>
+            </div>
+
+            <!-- RAM Meter -->
+            <div class="p-2.5 rounded-xl bg-slate-900/70 border border-white/5 space-y-1.5">
+              <div class="flex justify-between items-center text-[10px]">
+                <span class="text-slate-400">RAM Xotira</span>
+                <span class="font-bold text-violet-400" id="dash-ram">--%</span>
+              </div>
+              <div class="w-full bg-slate-800/80 rounded-full h-2 overflow-hidden">
+                <div id="meter-ram-bar" class="bg-gradient-to-r from-violet-500 to-pink-500 h-2 rounded-full transition-all duration-500" style="width: 0%"></div>
+              </div>
+            </div>
+
+            <!-- Disk Free Space Meter -->
+            <div class="p-2.5 rounded-xl bg-slate-900/70 border border-white/5 space-y-1.5">
+              <div class="flex justify-between items-center text-[10px]">
+                <span class="text-slate-400">Disk C: Bo'sh</span>
+                <span class="font-bold text-amber-400" id="dash-disk">-- GB</span>
+              </div>
+              <div class="w-full bg-slate-800/80 rounded-full h-2 overflow-hidden">
+                <div id="meter-disk-bar" class="bg-gradient-to-r from-amber-500 to-emerald-500 h-2 rounded-full transition-all duration-500" style="width: 75%"></div>
+              </div>
+            </div>
+
+            <!-- Battery Level Meter -->
+            <div class="p-2.5 rounded-xl bg-slate-900/70 border border-white/5 space-y-1.5">
+              <div class="flex justify-between items-center text-[10px]">
+                <span class="text-slate-400">Batareya Quvvati</span>
+                <span class="font-bold text-emerald-400" id="dash-battery">--%</span>
+              </div>
+              <div class="w-full bg-slate-800/80 rounded-full h-2 overflow-hidden">
+                <div id="meter-battery-bar" class="bg-gradient-to-r from-emerald-500 to-teal-400 h-2 rounded-full transition-all duration-500" style="width: 100%"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+
+        <!-- 3. AI CONCIERGE (KOTIBA REJIMI) CARD -->
+        <div class="glass-card rounded-2xl p-4 border border-emerald-500/25 space-y-3">
+          <div class="flex items-center justify-between border-b border-white/5 pb-2">
+            <div class="flex items-center gap-2">
+              <span class="text-base">👩‍💼</span>
+              <div>
+                <h2 class="text-xs font-bold text-slate-100 flex items-center gap-1.5">
+                  <span>Kotiba Rejimi (AI Concierge)</span>
+                </h2>
+                <span class="text-[10px] text-slate-400 font-mono" id="concierge-subtext">Monika shaxsiy kotiba avtopiloti</span>
+              </div>
+            </div>
+            <!-- Concierge Status Badge -->
+            <div id="concierge-status-badge" class="px-2.5 py-1 rounded-full text-[10px] font-mono font-bold flex items-center gap-1.5 bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+              <span id="concierge-dot" class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+              <span id="concierge-status-text">FAOL</span>
+            </div>
+          </div>
+
+          <p class="text-xs text-slate-300 leading-relaxed">
+            Siz kompyuterdan uzoqda bo'lganingizda xabarlarga muloyim javob beradi va qaydlarni yozib oladi.
+          </p>
+
+          <div class="flex items-center justify-between pt-1">
+            <div class="flex items-center gap-2 text-[11px] text-slate-400 font-mono">
+              <span>Qaydlar: <b class="text-cyan-400" id="concierge-notes-count">0</b> ta</span>
+              <span class="text-slate-600">•</span>
+              <span id="concierge-away-badge" class="text-slate-400">Holat: <span class="text-emerald-400 font-medium">Kuzatuvda</span></span>
+            </div>
+            <button id="btn-toggle-concierge" onclick="toggleConciergeMode()" class="px-3 py-1.5 rounded-xl font-bold text-xs transition active:scale-95 flex items-center gap-1.5 bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 shadow-md">
+              <span id="btn-concierge-icon">⏸️</span>
+              <span id="btn-concierge-label">Pauza qilish</span>
+            </button>
+          </div>
+        </div>
+
+
+        <!-- 4. ON-DEMAND VISUAL SURVEILLANCE & QUICK ACTIONS -->
+        <div class="glass-card rounded-2xl p-4 border border-white/10 space-y-3">
+          <h2 class="text-xs font-bold text-slate-400 uppercase tracking-wider">📷 Vizual Nazorat va Tezkor Harakatlar</h2>
+          <div class="grid grid-cols-2 gap-2.5">
+            <button onclick="openSurveillanceModal('desktop')" class="p-3 bg-gradient-to-r from-blue-600/20 to-cyan-600/20 hover:from-blue-600/30 hover:to-cyan-600/30 border border-cyan-500/30 text-cyan-200 rounded-xl font-semibold text-xs flex flex-col items-center justify-center gap-1 active:scale-95 shadow-md">
+              <span class="text-base">🖥️</span>
+              <span>Jonli Ekranni Ko'rish</span>
+            </button>
+
+            <button onclick="openSurveillanceModal('camera')" class="p-3 bg-gradient-to-r from-pink-600/20 to-purple-600/20 hover:from-pink-600/30 hover:to-purple-600/30 border border-pink-500/30 text-pink-200 rounded-xl font-semibold text-xs flex flex-col items-center justify-center gap-1 active:scale-95 shadow-md">
+              <span class="text-base">📷</span>
+              <span>Kamerani Ko'rish</span>
+            </button>
+          </div>
+
+          <!-- Audio & Quick Shortcuts Bar -->
+          <div class="grid grid-cols-2 gap-2 pt-1">
+            <!-- Mute Toggle -->
+            <button id="btn-dynamic-mute" onclick="toggleMuteState()" class="p-2.5 rounded-xl font-bold text-xs transition active:scale-95 flex items-center justify-center gap-1.5 bg-slate-800/80 hover:bg-slate-700/80 border border-white/10 text-slate-300">
+              <span id="dash-vol-icon">🔊</span>
+              <span id="dash-vol-text">Ovoz: 50%</span>
+            </button>
+
+            <!-- Instant Screenshot Trigger -->
+            <button onclick="sendQuickPrompt('Ekran skrinshotini ol')" class="p-2.5 rounded-xl font-bold text-xs transition active:scale-95 flex items-center justify-center gap-1.5 bg-cyan-600/20 hover:bg-cyan-600/30 border border-cyan-500/30 text-cyan-300">
+              <span>⚡</span> Skrinshot olish
+            </button>
+          </div>
+
+          <!-- Shortcuts Bar -->
+          <div class="flex flex-wrap gap-1.5 pt-1">
+            <button onclick="sendKey('win+d')" class="flex-1 py-1 px-2 bg-slate-800/80 hover:bg-slate-700/80 text-cyan-300 rounded-lg text-[11px] font-mono border border-white/5 active:scale-95">Win+D</button>
+            <button onclick="sendKey('alt+tab')" class="flex-1 py-1 px-2 bg-slate-800/80 hover:bg-slate-700/80 text-slate-300 rounded-lg text-[11px] font-mono border border-white/5 active:scale-95">Alt+Tab</button>
+            <button onclick="sendKey('ctrl+c')" class="flex-1 py-1 px-2 bg-slate-800/80 hover:bg-slate-700/80 text-slate-300 rounded-lg text-[11px] font-mono border border-white/5 active:scale-95">Ctrl+C</button>
+            <button onclick="sendKey('ctrl+v')" class="flex-1 py-1 px-2 bg-slate-800/80 hover:bg-slate-700/80 text-slate-300 rounded-lg text-[11px] font-mono border border-white/5 active:scale-95">Ctrl+V</button>
+            <button onclick="sendKey('enter')" class="flex-1 py-1 px-2 bg-slate-800/80 hover:bg-slate-700/80 text-slate-300 rounded-lg text-[11px] font-mono border border-white/5 active:scale-95">Enter</button>
+          </div>
+
+          <!-- Speak via PC Speaker -->
+          <div class="pt-1 flex gap-2">
+            <input type="text" id="speak-input" placeholder="Kompyuter dinamikida gapirish..." class="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-cyan-400 font-sans"
+              onkeydown="if(event.key==='Enter') executeSpeak()">
+            <button onclick="executeSpeak()" class="px-3 py-1.5 bg-gradient-to-r from-pink-600 to-purple-600 hover:from-pink-500 hover:to-purple-500 text-white rounded-xl text-xs font-semibold transition active:scale-95">
+              Aytish
+            </button>
+          </div>
+        </div>
+
+      </section>
+
+
+      <!-- ================================================================= -->
+      <!-- VIEWPORT 3: BILIMLAR & XOTIRA (OMNI-KNOWLEDGE & CONCIERGE INBOX)  -->
+      <!-- Mobile: Tab 3 | Desktop: Modal or toggled view                    -->
+      <!-- ================================================================= -->
+      <section id="tab-memory" class="hidden overflow-y-auto h-full p-4 space-y-4 pb-24">
+        <!-- Omni-Knowledge Search Bar -->
+        <div class="glass-card rounded-2xl p-4 space-y-3 border border-cyan-500/20">
+          <h2 class="text-xs font-bold text-cyan-400 uppercase tracking-wider flex items-center gap-1">
+            <span>🔍 Omni-Knowledge Qidiruvi</span>
+          </h2>
+          <div class="flex gap-2">
+            <input type="text" id="omni-search-input" placeholder="Fayllar, dasturlar, chatlar, saved messages..." class="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-cyan-400"
+              onkeydown="if(event.key==='Enter') executeOmniSearch()">
+            <button onclick="executeOmniSearch()" class="px-3.5 py-2 bg-cyan-600 hover:bg-cyan-500 text-white rounded-xl text-xs font-semibold transition active:scale-95">
+              Qidirish
+            </button>
+          </div>
+
+          <!-- Omni Search Results Container -->
+          <div id="omni-results" class="hidden space-y-2 text-xs pt-1">
+            <div class="text-[11px] text-slate-400 font-mono border-b border-slate-800 pb-1 flex justify-between items-center">
+              <span>Natijalar:</span>
+              <button onclick="document.getElementById('omni-results').classList.add('hidden')" class="text-slate-500 hover:text-slate-300">Yopish ✕</button>
+            </div>
+            <div id="omni-results-body" class="space-y-1.5 max-h-56 overflow-y-auto"></div>
+          </div>
+        </div>
+
+        <!-- Concierge Inbox -->
+        <div class="glass-card rounded-2xl p-4 space-y-3 border border-pink-500/20 shadow-xl">
+          <div class="flex items-center justify-between border-b border-slate-800 pb-2">
+            <div class="flex items-center gap-2">
+              <span class="text-base">📩</span>
+              <div>
+                <h2 class="text-xs font-bold text-slate-100 flex items-center gap-1.5">
+                  <span>Qabul qilingan xabarlar (Kotiba qutisi)</span>
+                </h2>
+                <span class="text-[10px] text-slate-400 font-mono" id="concierge-inbox-subtitle">Monika yozib olgan qaydlar</span>
+              </div>
+            </div>
+            <div class="flex items-center gap-1.5">
+              <button onclick="refreshConciergeInbox(true)" title="Yangilash" class="p-1.5 px-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition active:scale-95 text-xs">
+                <span id="inbox-refresh-icon">🔄</span>
+              </button>
+              <button onclick="clearConciergeInbox()" title="Barchasini tozalash" class="p-1.5 px-2.5 rounded-lg bg-red-500/15 hover:bg-red-500/25 border border-red-500/30 text-red-300 transition active:scale-95 text-[11px] font-semibold">
+                Tozalash 🗑️
+              </button>
+            </div>
+          </div>
+
+          <div id="concierge-inbox-list" class="space-y-2 max-h-72 overflow-y-auto pr-0.5">
+            <div class="p-4 text-center text-xs text-slate-500 font-mono">
+              Xabarlar yuklanmoqda...
+            </div>
+          </div>
+        </div>
+
+        <!-- Profile Summary Card -->
+        <div class="glass-card rounded-2xl p-4 space-y-2">
+          <h2 class="text-xs font-bold text-slate-400 uppercase tracking-wider">👤 Shaxsiy Profil</h2>
+          <div class="p-3 bg-slate-900/60 rounded-xl border border-slate-800 text-xs text-slate-300 space-y-1">
+            <p><span class="text-slate-500">Egasi:</span> <b class="text-white">Azizbek Maripov</b></p>
+            <p><span class="text-slate-500">Rol:</span> Kimyo Muhandisi & Tizim Rahbari</p>
+            <p><span class="text-slate-500">Shahar:</span> Toshkent, O'zbekiston</p>
+            <p><span class="text-slate-500">Yordamchi:</span> Monika AI (Mark LV Core v3.2)</p>
+          </div>
+        </div>
+      </section>
+
+    </div>
+  </main>
+
+
+  <!-- ===================================================================== -->
+  <!-- MODAL 0: SYSTEM CONTROL SHEET (3-DOTS ACTION CENTER)                  -->
+  <!-- ===================================================================== -->
+  <div id="system-menu-sheet" class="hidden fixed inset-0 z-50 bg-black/75 backdrop-blur-md flex items-end sm:items-center justify-center p-0 sm:p-4 transition-opacity duration-300" onclick="closeSystemMenuSheet()">
+    <div class="w-full max-w-sm bg-[#0b101d] border-t sm:border border-white/10 rounded-t-3xl sm:rounded-3xl p-5 space-y-4 shadow-2xl animate-in slide-in-from-bottom duration-300" onclick="event.stopPropagation()">
+      
+      <!-- Drag handle for mobile -->
+      <div class="w-10 h-1 bg-white/20 rounded-full mx-auto sm:hidden mb-1"></div>
+
+      <div class="flex items-center justify-between pb-3 border-b border-white/[0.08]">
+        <div class="flex items-center gap-2.5">
+          <img src="/monika_avatar.jpg" class="w-7 h-7 rounded-full object-cover ring-1 ring-white/20">
+          <div>
+            <h3 class="text-xs font-semibold text-white">Monika Boshqaruv Markazi</h3>
+            <p class="text-[10px] text-slate-400 font-normal">Tezkor amallar va sozlamalar</p>
+          </div>
+        </div>
+        <button onclick="closeSystemMenuSheet()" class="p-1 rounded-full text-slate-400 hover:text-white transition">
+          ✕
+        </button>
+      </div>
+
+      <!-- Action Grid -->
+      <div class="grid grid-cols-2 gap-2 text-xs">
+        <button onclick="refreshData(true); closeSystemMenuSheet(); showToast('Telemetriya yangilandi', 'success');" class="p-2.5 rounded-2xl bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] text-left transition active:scale-95 flex items-center gap-2.5">
+          <div class="w-8 h-8 rounded-xl bg-blue-500/20 text-blue-400 flex items-center justify-center text-sm">🔄</div>
+          <div>
+            <p class="font-medium text-white text-[11px]">Yangilash</p>
+            <p class="text-[9px] text-slate-400">Telemetriya</p>
+          </div>
+        </button>
+
+        <button onclick="toggleMuteState(); closeSystemMenuSheet();" class="p-2.5 rounded-2xl bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] text-left transition active:scale-95 flex items-center gap-2.5">
+          <div class="w-8 h-8 rounded-xl bg-violet-500/20 text-violet-400 flex items-center justify-center text-sm">🔇</div>
+          <div>
+            <p class="font-medium text-white text-[11px]">Ovozni o'chirish</p>
+            <p class="text-[9px] text-slate-400">Mute / Ovoz</p>
+          </div>
+        </button>
+
+        <button onclick="forceAppUpdate()" class="p-2.5 rounded-2xl bg-white/[0.04] hover:bg-white/[0.08] border border-cyan-500/30 text-left transition active:scale-95 flex items-center gap-2.5 col-span-2">
+          <div class="w-8 h-8 rounded-xl bg-cyan-500/20 text-cyan-400 flex items-center justify-center text-sm">🧹</div>
+          <div>
+            <p class="font-semibold text-cyan-300 text-[11px]">Keshni tozalash va Yangilash</p>
+            <p class="text-[9px] text-slate-400">Eski versiyani tozalab to'liq yangilaydi</p>
+          </div>
+        </button>
+
+        <button onclick="clearChatHistory(); closeSystemMenuSheet();" class="p-2.5 rounded-2xl bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] text-left transition active:scale-95 flex items-center gap-2.5 col-span-2">
+          <div class="w-8 h-8 rounded-xl bg-rose-500/20 text-rose-400 flex items-center justify-center text-sm">🗑️</div>
+          <div>
+            <p class="font-medium text-slate-200 text-[11px]">Chat tarixini tozalash</p>
+            <p class="text-[9px] text-slate-400">Yangi toza muloqot boshlash</p>
+          </div>
+        </button>
+
+        <button onclick="installPWA(); closeSystemMenuSheet();" class="p-2.5 rounded-2xl bg-blue-600/20 hover:bg-blue-600/30 border border-blue-500/40 text-left transition active:scale-95 flex items-center gap-2.5 col-span-2">
+          <div class="w-8 h-8 rounded-xl bg-blue-500 text-white flex items-center justify-center text-sm font-bold">📲</div>
+          <div>
+            <p class="font-medium text-blue-300 text-[11px]">Asosiy ekranga o'rnatish (PWA)</p>
+            <p class="text-[9px] text-slate-400">Brauzersiz alohida ilova sifatida ochish</p>
+          </div>
+        </button>
+      </div>
+
+    </div>
+  </div>
+
+
+  <!-- ===================================================================== -->
+  <!-- MODAL 1: PIN UNLOCK DIALOG MODAL (FEATURE F10)                         -->
+  <!-- ===================================================================== -->
+  <div id="pin-unlock-modal" class="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4 hidden" role="dialog" aria-modal="true" aria-labelledby="pin-modal-title">
+    <div class="glass-surface specular-border rounded-2xl w-full max-w-sm border border-emerald-500/40 p-5 space-y-4 shadow-2xl" role="document">
+      <div class="flex items-center justify-between border-b border-white/10 pb-2.5">
+        <h3 id="pin-modal-title" class="text-sm font-bold text-white flex items-center gap-2">
+          <span class="text-emerald-400">🔓</span>
+          <span>Ekranni Blokdan Chiqarish</span>
+        </h3>
+        <button onclick="closePinModal()" class="p-1 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition" aria-label="Modalni yopish">✕</button>
+      </div>
+
+      <p class="text-xs text-slate-300 leading-relaxed">
+        Windows sessiyasini uyg'otish va blokdan chiqarish uchun xavfsizlik PIN kodini kiriting:
+      </p>
+
+      <!-- PIN Input with prefilled standard option -->
+      <div class="space-y-2">
+        <label for="pin-input-field" class="text-[11px] font-mono text-slate-400 block">Xavfsizlik PIN kodi:</label>
+        <div class="relative">
+          <input type="password" id="pin-input-field" value="1234" placeholder="1234" maxlength="12"
+            class="w-full bg-slate-900/90 border border-slate-700 focus:border-emerald-400 rounded-xl px-4 py-2.5 text-center text-lg font-mono tracking-widest text-emerald-300 focus:outline-none focus:ring-1 focus:ring-emerald-400"
+            aria-label="Xavfsizlik PIN kodi"
+            onkeydown="if(event.key==='Enter') executeScreenUnlock()">
+        </div>
+        <p class="text-[10px] text-slate-400 font-mono">Standart tizim PIN kodi: <b class="text-emerald-400">1234</b></p>
+      </div>
+
+      <!-- Action Buttons -->
+      <div class="flex items-center justify-end gap-2 pt-2">
+        <button type="button" onclick="closePinModal()" class="px-3.5 py-2 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-slate-300 text-xs font-semibold transition active:scale-95" aria-label="Bekor qilish">
+          Bekor qilish
+        </button>
+        <button type="button" id="btn-submit-unlock" onclick="executeScreenUnlock()" class="px-4 py-2 rounded-xl glass-button-emerald text-xs font-bold transition active:scale-95 flex items-center gap-1.5 shadow-lg" aria-label="Ochishni tasdiqlash">
+          <span>🔓</span> Ochishni tasdiqlash
+        </button>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- ===================================================================== -->
+  <!-- MODAL 2: SURVEILLANCE MODAL (SCREENSHOT & WEBCAM VIEWER)              -->
+  <!-- ===================================================================== -->
+  <div id="surveillance-modal" class="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4 hidden" role="dialog" aria-modal="true" aria-labelledby="surveillance-modal-title">
+    <div class="glass-surface rounded-2xl w-full max-w-lg border border-cyan-500/30 p-4 space-y-3 shadow-2xl" role="document">
+      <div class="flex items-center justify-between border-b border-white/10 pb-2">
+        <h3 class="text-xs font-bold text-white flex items-center gap-1.5" id="surveillance-modal-title">
+          <span>🖥️ Jonli Ekran Surati</span>
+        </h3>
+        <button onclick="closeSurveillanceModal()" class="p-1 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition" aria-label="Modalni yopish">✕</button>
+      </div>
+
+      <!-- Media Image Container -->
+      <div class="relative rounded-xl overflow-hidden bg-black/60 border border-white/10 min-h-[220px] flex items-center justify-center">
+        <img id="surveillance-modal-img" src="" alt="Live Media" class="w-full max-h-[70vh] object-contain">
+        <div id="surveillance-modal-loader" class="absolute inset-0 bg-slate-950/80 flex items-center justify-center hidden">
+          <span class="text-xs text-cyan-400 animate-pulse font-mono">Tasvir yuklanmoqda...</span>
+        </div>
+      </div>
+
+      <!-- Freshness Indicator & Controls -->
+      <div class="flex items-center justify-between text-[10px] text-slate-400 font-mono">
+        <span id="surveillance-freshness">Yangilanish: Hozir</span>
+        <button onclick="refreshSurveillanceImage()" class="px-3 py-1 bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg transition active:scale-95 flex items-center gap-1">
+          <span>Yangilash</span> 🔄
+        </button>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- ===================================================================== -->
+  <!-- MODAL 3: INLINE SCREENSHOT CLICK-TO-ZOOM MODAL                        -->
+  <!-- ===================================================================== -->
+  <div id="image-zoom-modal" class="fixed inset-0 z-50 bg-black/90 backdrop-blur-lg flex items-center justify-center p-4 hidden" onclick="closeImageZoomModal()">
+    <div class="relative max-w-4xl max-h-[90vh] flex flex-col items-center" onclick="event.stopPropagation()">
+      <button onclick="closeImageZoomModal()" class="absolute -top-10 right-0 p-1.5 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-200 transition">✕ Yopish</button>
+      <img id="image-zoom-target" src="" alt="Zoomed Screenshot" class="rounded-xl border border-white/20 max-w-full max-h-[85vh] object-contain shadow-2xl">
+    </div>
+  </div>
+
+
+  <!-- ===================================================================== -->
+  <!-- Floating Frosted Glass Dock (iOS / Modern Mobile App Style)           -->
+  <!-- ===================================================================== -->
+  <nav class="lg:hidden fixed bottom-3 left-4 right-4 z-40 max-w-sm mx-auto bg-[#090d18]/85 backdrop-blur-2xl border border-white/[0.08] rounded-full px-5 py-2 flex items-center justify-around shadow-2xl">
+    <!-- Tab 1: Chat -->
+    <button onclick="switchMobileTab('chat')" class="nav-btn flex flex-col items-center text-blue-400 transition py-1 px-3" data-tab="chat">
+      <svg class="w-5 h-5 mb-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/></svg>
+      <span class="text-[10px] font-medium tracking-tight">Chat</span>
+    </button>
+
+    <!-- Tab 2: Boshqaruv & Telemetriya -->
+    <button onclick="switchMobileTab('dashboard')" class="nav-btn flex flex-col items-center text-slate-400 hover:text-slate-200 transition py-1 px-3" data-tab="dashboard">
+      <svg class="w-5 h-5 mb-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+      <span class="text-[10px] font-medium tracking-tight">Boshqaruv</span>
+    </button>
+
+    <!-- Tab 3: Bilimlar & Xotira -->
+    <button onclick="switchMobileTab('memory')" class="nav-btn flex flex-col items-center text-slate-400 hover:text-slate-200 transition py-1 px-3" data-tab="memory">
+      <svg class="w-5 h-5 mb-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/></svg>
+      <span class="text-[10px] font-medium tracking-tight">Kotiba</span>
+    </button>
+  </nav>
+
+
+  <!-- ===================================================================== -->
+  <!-- JavaScript Client Core Engine                                         -->
+  <!-- ===================================================================== -->
+  <script>
+    // -------------------------------------------------------------------------
+    // 1. Telegram WebApp SDK Initialization
+    // -------------------------------------------------------------------------
+    const tg = window.Telegram?.WebApp;
+    if (tg) {
+      try {
+        tg.ready();
+        tg.expand();
+        if (typeof tg.enableClosingConfirmation === 'function') {
+          tg.enableClosingConfirmation();
+        }
+        tg.setHeaderColor('#050811');
+        tg.setBackgroundColor('#050811');
+      } catch (e) {
+        console.warn('Telegram WebApp setup note:', e);
+      }
+    }
+
+    function triggerHaptic(type = 'impact', style = 'light') {
+      try {
+        if (tg?.HapticFeedback) {
+          if (type === 'impact') tg.HapticFeedback.impactOccurred(style);
+          else if (type === 'notification') tg.HapticFeedback.notificationOccurred(style);
+          else if (type === 'selection') tg.HapticFeedback.selectionChanged();
+        }
+      } catch (e) {}
+    }
+
+    // -------------------------------------------------------------------------
+    // 2. Authentication Helper & Secure API Requester
+    // -------------------------------------------------------------------------
+    function getAuthKey() {
+      const urlParams = new URLSearchParams(window.location.search);
+      const queryKey = urlParams.get('api_key') || urlParams.get('key') || urlParams.get('token');
+      if (queryKey) {
+        try { localStorage.setItem('monika_api_key', queryKey); } catch (e) {}
+        return queryKey;
+      }
+      try {
+        const stored = localStorage.getItem('monika_api_key');
+        if (stored) return stored;
+      } catch (e) {}
+      return '';
+    }
+
+    async function apiRequest(endpoint, method = 'GET', body = null, timeoutMs = 28000) {
+      const apiKey = getAuthKey();
+      const headers = {
+        'Content-Type': 'application/json'
+      };
+      if (apiKey) {
+        headers['X-API-Key'] = apiKey;
+        headers['Authorization'] = `Bearer ${apiKey}`;
+      }
+      const options = { method, headers };
+      if (body && method !== 'GET') {
+        options.body = JSON.stringify(body);
+      }
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
+      options.signal = controller.signal;
+      try {
+        const res = await fetch(endpoint, options);
+        if (res.status === 401) {
+          console.warn('Authentication required.');
+          return { error: 'Avtorizatsiya talab etiladi', status: 'unauthorized' };
+        }
+        return await res.json();
+      } catch (err) {
+        if (err.name === 'AbortError') {
+          return { error: 'So\'rov vaqti tugadi (timeout). Server band yoki tarmoq muammosi.', status: 'timeout' };
+        }
+        console.error(`API request error on ${endpoint}:`, err);
+        return { error: err.message, status: 'error' };
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+
+    // -------------------------------------------------------------------------
+    // 3. Responsive Navigation & Tab Switching
+    // -------------------------------------------------------------------------
+    let currentMobileTab = 'chat';
+
+    function switchMobileTab(tabId) {
+      triggerHaptic('selection');
+      currentMobileTab = tabId;
+
+      // On mobile screens (< 1024px)
+      if (window.innerWidth < 1024) {
+        ['chat', 'dashboard', 'memory'].forEach(t => {
+          const sec = document.getElementById(`tab-${t}`);
+          if (sec) sec.classList.toggle('hidden', t !== tabId);
+        });
+
+        document.querySelectorAll('.nav-btn').forEach(btn => {
+          const isMatch = btn.getAttribute('data-tab') === tabId;
+          btn.classList.toggle('text-cyan-400', isMatch);
+          btn.classList.toggle('text-slate-400', !isMatch);
+        });
+      }
+
+      if (tabId === 'dashboard') refreshData();
+      if (tabId === 'chat') scrollChatToBottom();
+      if (tabId === 'memory') refreshConciergeInbox();
+    }
+
+    // Handle responsive resize between desktop split mode and mobile tabs
+    window.addEventListener('resize', () => {
+      const isDesktop = window.innerWidth >= 1024;
+      const chatSec = document.getElementById('tab-chat');
+      const dashSec = document.getElementById('tab-dashboard');
+
+      if (isDesktop) {
+        if (chatSec) chatSec.classList.remove('hidden');
+        if (dashSec) {
+          dashSec.classList.remove('hidden');
+          dashSec.classList.add('flex');
+        }
+      } else {
+        switchMobileTab(currentMobileTab);
+      }
+    });
+
+    // -------------------------------------------------------------------------
+    // 4. Dedicated Screen Lock & Unlock Engine (Feature F10)
+    // -------------------------------------------------------------------------
+    let isWorkstationLocked = false;
+    let isMasterMuted = false;
+    let lastActionTimestamp = 0;
+
+    // Trigger Screen Lock
+    async function executeScreenLock() {
+      triggerHaptic('impact', 'medium');
+      lastActionTimestamp = Date.now();
+      showToast("Kompyuter ekrani bloklanmoqda...", "info");
+
+      // Optimistically update badge
+      updateLockStatusUI(true, "QULFLANMOQDA...");
+
+      // Hit explicit screen lock endpoint
+      const res = await apiRequest('/api/screen/lock', 'POST', {});
+      if (res && res.status === 'success') {
+        showToast("🔒 Kompyuter ekrani muvaffaqiyatli qulflandi.", "success");
+        updateLockStatusUI(true, "QULFLANGAN (Locked)");
+      } else {
+        showToast(res?.error || "Qulflashda xatolik yuz berdi", "error");
+      }
+      setTimeout(refreshData, 500);
+    }
+
+    // Open PIN Modal
+    function openPinModal() {
+      triggerHaptic('impact', 'light');
+      const modal = document.getElementById('pin-unlock-modal');
+      const input = document.getElementById('pin-input-field');
+      if (modal) {
+        modal.classList.remove('hidden');
+        if (input) {
+          input.value = "1234";
+          input.focus();
+          input.select();
+        }
+      }
+    }
+
+    // Close PIN Modal
+    function closePinModal() {
+      triggerHaptic('impact', 'light');
+      const modal = document.getElementById('pin-unlock-modal');
+      if (modal) modal.classList.add('hidden');
+    }
+
+    // Trigger Screen Unlock via PIN
+    async function executeScreenUnlock() {
+      triggerHaptic('impact', 'medium');
+      lastActionTimestamp = Date.now();
+      const input = document.getElementById('pin-input-field');
+      const btn = document.getElementById('btn-submit-unlock');
+      const pin = input ? input.value.trim() : "1234";
+
+      if (btn) btn.innerHTML = '<span>⏳</span> Ochilmoqda...';
+
+      const res = await apiRequest('/api/screen/unlock', 'POST', { pin });
+      if (btn) btn.innerHTML = '<span>🔓</span> Ochishni tasdiqlash';
+
+      closePinModal();
+
+      if (res && (res.status === 'success' || !res.is_locked)) {
+        showToast("🔓 Kompyuter ekrani muvaffaqiyatli uyg'otildi va ochildi!", "success");
+        updateLockStatusUI(false, "OCHIQ (Faol)");
+      } else {
+        const msg = res?.message || res?.error || "PIN xato yoki ekranni ochib bo'lmadi";
+        showToast("⚠️ " + msg, "error");
+      }
+      setTimeout(refreshData, 600);
+    }
+
+    // Update Lock Badges & Indicators throughout UI
+    function updateLockStatusUI(locked, customText = null) {
+      isWorkstationLocked = Boolean(locked);
+
+      // Header dot & badge
+      const headerDot = document.getElementById('header-status-dot');
+      const headerBadge = document.getElementById('header-lock-badge');
+      const headerDotPulse = document.getElementById('header-lock-dot');
+      const headerText = document.getElementById('header-lock-text');
+
+      // Dashboard card badge
+      const cardBadge = document.getElementById('card-lock-badge');
+      const cardDot = document.getElementById('card-lock-dot');
+      const cardText = document.getElementById('card-lock-text');
+
+      const btnLock = document.getElementById('btn-header-lock');
+      const btnUnlock = document.getElementById('btn-header-unlock');
+
+      if (isWorkstationLocked) {
+        if (headerDot) headerDot.className = 'absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 bg-red-500 ring-2 ring-[#070b14] rounded-full';
+        if (headerBadge) headerBadge.className = 'px-2 py-0.5 rounded-full text-[10px] font-medium bg-red-500/10 text-red-400 border border-red-500/20 flex items-center gap-1.5';
+        if (headerDotPulse) headerDotPulse.className = 'w-1.5 h-1.5 rounded-full bg-red-400 animate-pulse';
+        if (headerText) headerText.textContent = customText || 'Qulflangan';
+
+        if (btnLock) btnLock.classList.add('hidden');
+        if (btnUnlock) btnUnlock.classList.remove('hidden');
+
+        if (cardBadge) cardBadge.className = 'px-2.5 py-1 rounded-full text-[10px] font-mono font-bold flex items-center gap-1.5 bg-red-500/15 text-red-400 border border-red-500/30';
+        if (cardDot) cardDot.className = 'w-2 h-2 rounded-full bg-red-400 animate-pulse';
+        if (cardText) cardText.textContent = customText || 'BLOKLANGAN (Locked)';
+      } else {
+        if (headerDot) headerDot.className = 'absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 bg-emerald-500 ring-2 ring-[#070b14] rounded-full';
+        if (headerBadge) headerBadge.className = 'px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 flex items-center gap-1.5';
+        if (headerDotPulse) headerDotPulse.className = 'w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse';
+        if (headerText) headerText.textContent = customText || 'Faol / Ochiq';
+
+        if (btnLock) btnLock.classList.remove('hidden');
+        if (btnUnlock) btnUnlock.classList.add('hidden');
+
+        if (cardBadge) cardBadge.className = 'px-2.5 py-1 rounded-full text-[10px] font-mono font-bold flex items-center gap-1.5 bg-emerald-500/15 text-emerald-400 border border-emerald-500/30';
+        if (cardDot) cardDot.className = 'w-2 h-2 rounded-full bg-emerald-400 animate-pulse';
+        if (cardText) cardText.textContent = customText || 'OCHIQ (Faol)';
+      }
+    }
+
+    function openSystemMenuSheet() {
+      triggerHaptic('selection');
+      const sheet = document.getElementById('system-menu-sheet');
+      if (sheet) sheet.classList.remove('hidden');
+    }
+
+    function closeSystemMenuSheet() {
+      triggerHaptic('selection');
+      const sheet = document.getElementById('system-menu-sheet');
+      if (sheet) sheet.classList.add('hidden');
+    }
+
+    // -------------------------------------------------------------------------
+    // 5. Chat Stream, Markdown, & Inline Screenshot Rendering
+    // -------------------------------------------------------------------------
+    const chatMessagesContainer = document.getElementById('chat-messages');
+    const chatInput = document.getElementById('chat-input');
+    const typingIndicator = document.getElementById('typing-indicator');
+
+    function scrollChatToBottom() {
+      if (chatMessagesContainer) {
+        chatMessagesContainer.scrollTop = chatMessagesContainer.scrollHeight;
+      }
+    }
+
+    function appendMessage(role, text, timeStr = '') {
+      const isUser = (role === 'user');
+      const time = timeStr || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      const wrap = document.createElement('div');
+      wrap.className = isUser ? 'flex items-start justify-end gap-2 max-w-[92%] ml-auto' : 'flex items-start gap-2.5 max-w-[95%] mr-auto';
+
+      let innerHtml = '';
+      if (isUser) {
+        const encodedUserText = encodeURIComponent(text);
+        innerHtml = `
+          <div class="bg-blue-600 text-white rounded-2xl rounded-tr-xs px-4 py-2.5 text-[13px] shadow-sm leading-relaxed max-w-[85%]">
+            <p class="whitespace-pre-wrap">${escapeHtml(text)}</p>
+            <div class="text-[9px] text-blue-200/80 text-right mt-1 font-mono">${time}</div>
+          </div>
+        `;
+      } else {
+        // Detect and handle Actionable Diagnostic Error Banners
+        const isErrorBanner = text.startsWith('⚠️') || text.startsWith('❌') || text.startsWith('⏱️');
+        const parsedMarkdown = typeof marked !== 'undefined' ? marked.parse(text) : escapeHtml(text);
+        const encodedText = encodeURIComponent(text);
+
+        // Clean modern card styling (subtle, elegant glass)
+        const cardClass = isErrorBanner 
+          ? 'glass-card rounded-2xl rounded-tl-xs p-3.5 text-xs text-red-200 border border-red-500/30 bg-red-950/20 shadow-lg'
+          : 'glass-card rounded-2xl rounded-tl-xs p-3.5 text-[13px] text-slate-100 border border-white/10 shadow-lg bg-white/[0.04]';
+
+        innerHtml = `
+          <img src="/monika_avatar.jpg" alt="Monika" class="w-8 h-8 rounded-full object-cover shrink-0 mt-0.5 ring-1 ring-white/15 shadow-sm" onerror="this.src='/monika_avatar.jpg'">
+          <div class="${cardClass} max-w-[88%]">
+            <div class="flex items-center justify-between text-[11px] mb-1">
+              <p class="font-semibold ${isErrorBanner ? 'text-red-400' : 'text-slate-200'} flex items-center gap-1.5">
+                <span>Monika</span>
+                ${isErrorBanner ? '<span class="text-[9px] bg-red-500/20 text-red-300 px-1.5 py-0.2 rounded font-mono">Xatolik / Diagnostika</span>' : ''}
+              </p>
+              <span class="text-[9px] text-slate-400 font-mono">${time}</span>
+            </div>
+            <div class="prose-glass leading-relaxed">${parsedMarkdown}</div>
+          </div>
+        `;
+      }
+
+      wrap.innerHTML = innerHtml;
+
+      // Detect rendered images (e.g. screenshots) and ensure auth key + zoomable preview
+      wrap.querySelectorAll('img:not([alt="Monika"])').forEach(img => {
+        const authKey = getAuthKey();
+        if (img.src && img.src.includes('/api/') && !img.src.includes('api_key=')) {
+          img.src += (img.src.includes('?') ? '&' : '?') + 'api_key=' + encodeURIComponent(authKey);
+        }
+        img.classList.add('rounded-2xl', 'border', 'border-white/10', 'mt-2.5', 'max-h-72', 'w-full', 'object-cover', 'cursor-zoom-in', 'shadow-xl');
+        img.onclick = () => openImageZoomModal(img.src);
+      });
+
+      // Auto-attach code copy buttons
+      wrap.querySelectorAll('pre').forEach(pre => {
+        if (!pre.querySelector('.code-copy-btn')) {
+          const codeBtn = document.createElement('button');
+          codeBtn.type = 'button';
+          codeBtn.className = 'code-copy-btn absolute top-1.5 right-1.5 px-2 py-0.5 rounded text-[10px] bg-slate-800/90 hover:bg-slate-700 text-slate-300 font-mono transition active:scale-95 border border-white/10 shadow z-10 flex items-center gap-1';
+          codeBtn.innerHTML = '<span>Nusxa</span> 📋';
+          codeBtn.onclick = (e) => {
+            e.stopPropagation();
+            const codeEl = pre.querySelector('code');
+            const codeContent = codeEl ? codeEl.innerText : pre.innerText;
+            copyTextToClipboard(codeContent, codeBtn);
+          };
+          pre.appendChild(codeBtn);
+        }
+      });
+
+      chatMessagesContainer.appendChild(wrap);
+      scrollChatToBottom();
+    }
+
+    function escapeHtml(str) {
+      return (str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+    function escapeJs(str) {
+      return (str || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, '\\n').replace(/\r/g, '');
+    }
+
+    let currentHistorySeq = 0;
+
+    async function handleChatSubmit(e) {
+      if (e) e.preventDefault();
+      const msg = chatInput.value.trim();
+      if (!msg) return;
+
+      currentHistorySeq++;
+      triggerHaptic('impact', 'light');
+      appendMessage('user', msg);
+      chatInput.value = '';
+      chatInput.disabled = true;
+      document.getElementById('send-btn').disabled = true;
+      typingIndicator.classList.remove('hidden');
+      scrollChatToBottom();
+
+      const res = await apiRequest('/api/chat/send', 'POST', { message: msg }, 30000);
+      typingIndicator.classList.add('hidden');
+      chatInput.disabled = false;
+      document.getElementById('send-btn').disabled = false;
+      chatInput.focus();
+
+      if (res && res.reply) {
+        triggerHaptic('notification', 'success');
+        appendMessage('assistant', res.reply, res.time_str);
+      } else {
+        const errMsg = res?.error || 'Kechirasiz, buyruqni bajarishda xatolik yuz berdi.';
+        appendMessage('assistant', '⚠️ ' + errMsg);
+      }
+    }
+
+    function sendQuickPrompt(promptText) {
+      chatInput.value = promptText;
+      switchMobileTab('chat');
+      handleChatSubmit();
+    }
+
+    async function loadChatHistory() {
+      const seq = ++currentHistorySeq;
+      const res = await apiRequest('/api/chat/history?limit=25', 'GET');
+      if (seq !== currentHistorySeq) return;
+      if (res && res.messages && res.messages.length > 0) {
+        chatMessagesContainer.innerHTML = '';
+        res.messages.forEach(m => {
+          appendMessage(m.role, m.text, m.time_str);
+        });
+      }
+    }
+
+    async function clearChatHistory() {
+      if (confirm("Chat tarixini tozalashni xohlaysizmi?")) {
+        triggerHaptic('impact', 'medium');
+        currentHistorySeq++;
+        await apiRequest('/api/chat/clear', 'POST', {});
+        chatMessagesContainer.innerHTML = '';
+        appendMessage('assistant', "Yangi suhbat boshlandi. Qanday buyrug'ingiz bor?");
+      }
+    }
+
+    // -------------------------------------------------------------------------
+    // 6. Sleek Non-Blocking Toast Notification System
+    // -------------------------------------------------------------------------
+    function showToast(message, type = 'info') {
+      const container = document.getElementById('toast-container');
+      if (!container) return;
+      const toast = document.createElement('div');
+      const borderCol = (type === 'success') ? 'border-emerald-500/50 text-emerald-300 bg-emerald-950/85' :
+                        (type === 'error') ? 'border-red-500/50 text-red-300 bg-red-950/85' :
+                        'border-cyan-500/50 text-cyan-300 bg-slate-900/90';
+      toast.className = `glass-surface px-4 py-2.5 rounded-xl text-xs font-medium shadow-2xl border ${borderCol} flex items-center gap-2 transition-all duration-300 opacity-0 -translate-y-2 pointer-events-auto backdrop-blur-md`;
+      const icon = (type === 'success') ? '✅' : (type === 'error') ? '⚠️' : 'ℹ️';
+      toast.innerHTML = `<span>${icon}</span> <span>${escapeHtml(message)}</span>`;
+      container.appendChild(toast);
+      requestAnimationFrame(() => {
+        toast.classList.remove('opacity-0', '-translate-y-2');
+      });
+      setTimeout(() => {
+        toast.classList.add('opacity-0', '-translate-y-2');
+        setTimeout(() => toast.remove(), 300);
+      }, 2500);
+    }
+
+    // Universal Clipboard Copy
+    function handleCopyClick(btn) {
+      triggerHaptic('impact', 'light');
+      const encoded = btn.getAttribute('data-copy') || '';
+      let text = '';
+      try { text = decodeURIComponent(encoded); } catch (e) { text = encoded; }
+      if (!text) {
+        const card = btn.closest('.glass-card') || btn.closest('.bg-gradient-to-r');
+        text = card ? (card.querySelector('.prose-glass') || card.querySelector('p'))?.innerText || '' : '';
+      }
+      copyTextToClipboard(text, btn);
+    }
+
+    async function copyTextToClipboard(text, btnElement) {
+      if (!text) return;
+      let ok = false;
+      if (navigator.clipboard && window.isSecureContext) {
+        try {
+          await navigator.clipboard.writeText(text);
+          ok = true;
+        } catch (e) {}
+      }
+      if (!ok) {
+        try {
+          const ta = document.createElement('textarea');
+          ta.value = text;
+          ta.style.position = 'fixed';
+          ta.style.left = '-9999px';
+          document.body.appendChild(ta);
+          ta.focus();
+          ta.select();
+          ok = document.execCommand('copy');
+          document.body.removeChild(ta);
+        } catch (err) {}
+      }
+      if (btnElement) {
+        const orig = btnElement.innerHTML;
+        if (ok) {
+          triggerHaptic('notification', 'success');
+          btnElement.innerHTML = '<span class="text-emerald-400 font-bold">Nusxalandi!</span> ✅';
+          showToast("Matn xotiraga nusxalandi!", "success");
+        } else {
+          btnElement.innerHTML = '<span class="text-amber-400">Nusxalanmadi</span> ⚠️';
+        }
+        setTimeout(() => { btnElement.innerHTML = orig; }, 1800);
+      }
+    }
+
+    // Voice recognition helper (SpeechToText)
+    let isListening = false;
+    function toggleVoiceInput() {
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (!SpeechRecognition) {
+        showToast("Brauzeringiz ovozli kiritishni qo'llab-quvvatlamaydi.", "info");
+        return;
+      }
+      triggerHaptic('impact', 'medium');
+      const micIcon = document.getElementById('mic-icon');
+
+      if (isListening) {
+        isListening = false;
+        micIcon.classList.remove('text-red-500', 'animate-pulse');
+        return;
+      }
+
+      const rec = new SpeechRecognition();
+      rec.lang = 'uz-UZ';
+      rec.interimResults = false;
+      rec.maxAlternatives = 1;
+
+      rec.onstart = () => {
+        isListening = true;
+        micIcon.classList.add('text-red-500', 'animate-pulse');
+      };
+      rec.onresult = (evt) => {
+        const transcript = evt.results[0][0].transcript;
+        chatInput.value = transcript;
+        isListening = false;
+        micIcon.classList.remove('text-red-500', 'animate-pulse');
+        handleChatSubmit();
+      };
+      rec.onerror = () => {
+        isListening = false;
+        micIcon.classList.remove('text-red-500', 'animate-pulse');
+      };
+      rec.onend = () => {
+        isListening = false;
+        micIcon.classList.remove('text-red-500', 'animate-pulse');
+      };
+      rec.start();
+    }
+
+    // -------------------------------------------------------------------------
+    // 7. Live Telemetry Poller & Visual Progress Bar Synchronizer
+    // -------------------------------------------------------------------------
+    async function refreshData(manual = false) {
+      if (manual) {
+        triggerHaptic('impact', 'light');
+        const icon = document.getElementById('refresh-icon');
+        if (icon) {
+          icon.classList.add('animate-spin');
+          setTimeout(() => icon.classList.remove('animate-spin'), 800);
+        }
+      }
+
+      const reqTimestamp = Date.now();
+      const data = await apiRequest('/api/status', 'GET');
+      if (!data || data.error) return;
+
+      // Ignore poll response if user performed an explicit lock/unlock action while request was in-flight
+      if (reqTimestamp < lastActionTimestamp) return;
+
+      // Update Screen Lock State
+      updateLockStatusUI(Boolean(data.is_locked));
+
+      // Header Subtitle (Active Window)
+      const headerSub = document.getElementById('header-subtitle');
+      if (headerSub) {
+        headerSub.textContent = data.is_locked ? "Kompyuter Qulflangan" : (data.active_window || "Faol Ish Stoli");
+      }
+
+      // Telemetry Meters
+      const cpu = data.cpu_percent != null ? data.cpu_percent : 0;
+      const ram = data.ram_percent != null ? data.ram_percent : 0;
+      const diskGb = data.disk_free_gb != null ? data.disk_free_gb : 0;
+      const diskPercent = data.disk_percent != null ? data.disk_percent : 0;
+      const hasBattery = data.battery_percent != null && data.battery_percent !== undefined;
+      const battery = hasBattery ? data.battery_percent : '--';
+
+      const cpuEl = document.getElementById('dash-cpu');
+      const ramEl = document.getElementById('dash-ram');
+      const diskEl = document.getElementById('dash-disk');
+      const batEl = document.getElementById('dash-battery');
+      const uptimeEl = document.getElementById('dash-uptime');
+      const windowEl = document.getElementById('dash-active-window');
+
+      if (cpuEl) cpuEl.textContent = `${cpu}%`;
+      if (ramEl) ramEl.textContent = `${ram}%`;
+      if (diskEl) diskEl.textContent = `${diskGb} GB`;
+      if (batEl) batEl.textContent = hasBattery ? `${battery}%` : '--';
+      if (uptimeEl) uptimeEl.textContent = `Uptime: ${data.uptime_formatted || '--'}`;
+      if (windowEl) windowEl.textContent = data.active_window || "Ish stoli";
+
+      // Animated progress bars
+      const cpuBar = document.getElementById('meter-cpu-bar');
+      const ramBar = document.getElementById('meter-ram-bar');
+      const diskBar = document.getElementById('meter-disk-bar');
+      const batBar = document.getElementById('meter-battery-bar');
+
+      if (cpuBar) cpuBar.style.width = `${Math.min(100, Math.max(0, cpu))}%`;
+      if (ramBar) ramBar.style.width = `${Math.min(100, Math.max(0, ram))}%`;
+      if (diskBar) diskBar.style.width = `${Math.min(100, Math.max(0, diskPercent))}%`;
+      if (batBar) {
+        batBar.style.width = hasBattery ? `${Math.min(100, Math.max(0, Number(battery)))}%` : '0%';
+      }
+
+      // Master Volume & Mute State
+      isMasterMuted = Boolean(data.is_muted);
+      const volIcon = document.getElementById('dash-vol-icon');
+      const volText = document.getElementById('dash-vol-text');
+      const volLevel = data.volume !== undefined ? data.volume : 50;
+
+      if (isMasterMuted) {
+        if (volIcon) volIcon.textContent = "🔇";
+        if (volText) volText.textContent = "Ovoz: O'chiq";
+      } else {
+        if (volIcon) volIcon.textContent = "🔊";
+        if (volText) volText.textContent = `Ovoz: ${volLevel}%`;
+      }
+
+      // Kotiba Rejimi (AI Concierge) Telemetry
+      if (data.concierge_enabled !== undefined) {
+        updateConciergeDashboardUI(data.concierge_enabled, data.concierge_unread_count);
+      }
+    }
+
+    // Toggle Volume Mute
+    async function toggleMuteState() {
+      triggerHaptic('impact', 'medium');
+      const res = await apiRequest('/api/action/mute', 'POST', {});
+      showToast(res?.message || "Ovoz holati o'zgartirildi", "info");
+      setTimeout(refreshData, 300);
+    }
+
+    // Send Keyboard Shortcut
+    async function sendKey(key) {
+      triggerHaptic('impact', 'light');
+      const res = await apiRequest('/api/action/key', 'POST', { key });
+      if (res && res.status === 'success') {
+        showToast(`Tugma yuborildi: ${key}`, "info");
+      } else {
+        showToast(res?.message || res?.error || `Tugma yuborishda xatolik: ${key}`, "error");
+      }
+    }
+
+    // Speak Text on PC Speaker
+    async function executeSpeak() {
+      const inp = document.getElementById('speak-input');
+      const val = inp ? inp.value.trim() : '';
+      if (!val) return;
+      triggerHaptic('impact', 'light');
+      const res = await apiRequest('/api/say', 'POST', { text: val });
+      if (res && res.status === 'success') {
+        showToast("Matn gapirildi", "success");
+        if (inp) inp.value = '';
+      } else {
+        showToast(res?.message || res?.error || "Matnni gapirishda xatolik yuz berdi", "error");
+      }
+    }
+
+    // -------------------------------------------------------------------------
+    // 8. AI Concierge (Kotiba Rejimi) Handlers
+    // -------------------------------------------------------------------------
+    let isConciergeActive = true;
+
+    function updateConciergeDashboardUI(enabled, count) {
+      isConciergeActive = Boolean(enabled);
+      const badge = document.getElementById('concierge-status-badge');
+      const dot = document.getElementById('concierge-dot');
+      const text = document.getElementById('concierge-status-text');
+      const btn = document.getElementById('btn-toggle-concierge');
+      const btnIcon = document.getElementById('btn-concierge-icon');
+      const btnLabel = document.getElementById('btn-concierge-label');
+      const countEl = document.getElementById('concierge-notes-count');
+      const awayBadge = document.getElementById('concierge-away-badge');
+
+      if (countEl && count !== undefined) countEl.textContent = count;
+
+      if (isConciergeActive) {
+        if (badge) badge.className = 'px-2.5 py-1 rounded-full text-[10px] font-mono font-bold flex items-center gap-1.5 bg-emerald-500/15 text-emerald-400 border border-emerald-500/30';
+        if (dot) dot.className = 'w-2 h-2 rounded-full bg-emerald-500 animate-pulse';
+        if (text) text.textContent = 'FAOL';
+        if (btn) btn.className = 'px-3 py-1.5 rounded-xl font-bold text-xs transition active:scale-95 flex items-center gap-1.5 bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 shadow-md';
+        if (btnIcon) btnIcon.textContent = '⏸️';
+        if (btnLabel) btnLabel.textContent = 'Pauza qilish';
+        if (awayBadge) awayBadge.innerHTML = 'Holat: <span class="text-emerald-400 font-medium">Kuzatuvda</span>';
+      } else {
+        if (badge) badge.className = 'px-2.5 py-1 rounded-full text-[10px] font-mono font-bold flex items-center gap-1.5 bg-slate-800 text-amber-400 border border-amber-500/30';
+        if (dot) dot.className = 'w-2 h-2 rounded-full bg-amber-500';
+        if (text) text.textContent = 'PAUZADA';
+        if (btn) btn.className = 'px-3 py-1.5 rounded-xl font-bold text-xs transition active:scale-95 flex items-center gap-1.5 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 shadow-md';
+        if (btnIcon) btnIcon.textContent = '▶️';
+        if (btnLabel) btnLabel.textContent = 'Faollashtirish';
+        if (awayBadge) awayBadge.innerHTML = 'Holat: <span class="text-amber-400 font-medium">To\'xtatilgan</span>';
+      }
+    }
+
+    async function toggleConciergeMode() {
+      triggerHaptic('impact', 'medium');
+      const res = await apiRequest('/api/concierge/toggle', 'POST', { enabled: !isConciergeActive });
+      if (res && res.status === 'success') {
+        showToast(res.message || "Kotiba rejimi yangilandi", "success");
+        updateConciergeDashboardUI(res.enabled);
+      } else {
+        showToast("Kotiba holatini o'zgartirib bo'lmadi", "error");
+      }
+      setTimeout(refreshData, 300);
+    }
+
+    async function refreshConciergeInbox(manual = false) {
+      if (manual) triggerHaptic('impact', 'light');
+      const data = await apiRequest('/api/concierge/inbox', 'GET');
+      const listContainer = document.getElementById('concierge-inbox-list');
+      const countEl = document.getElementById('concierge-notes-count');
+      const subtitleEl = document.getElementById('concierge-inbox-subtitle');
+      if (!listContainer) return;
+
+      if (!data || !data.inbox || data.inbox.length === 0) {
+        if (countEl) countEl.textContent = '0';
+        if (subtitleEl) subtitleEl.textContent = 'Xabarlar yo\'q (0 ta)';
+        listContainer.innerHTML = `
+          <div class="p-6 text-center text-xs text-slate-400 space-y-1">
+            <span class="text-2xl block mb-1">📭</span>
+            <p class="font-medium text-slate-300">Yozib olingan xabarlar yo'q</p>
+            <p class="text-[10px] text-slate-500">Monika siz band bo'lganingizda qabul qilgan xabarlar shu yerda saqlanadi.</p>
+          </div>
+        `;
+        return;
+      }
+
+      const notes = data.inbox;
+      if (countEl) countEl.textContent = notes.length;
+      if (subtitleEl) subtitleEl.textContent = `${notes.length} ta yozib olingan xabar`;
+
+      let html = '';
+      notes.forEach((note) => {
+        const sender = note.sender || note.sender_name || 'Noma\'lum kontakt';
+        const time = note.time || (note.timestamp ? new Date(note.timestamp * 1000).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : '--:--');
+        const text = note.text || note.note || note.message || '';
+        const isUrgent = note.urgency === 'high' || note.is_urgent;
+
+        html += `
+          <div class="p-3 rounded-xl bg-slate-900/80 border ${isUrgent ? 'border-amber-500/40 bg-amber-500/5' : 'border-white/5'} transition space-y-1.5">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-1.5">
+                <span class="w-2 h-2 rounded-full ${isUrgent ? 'bg-amber-400 animate-pulse' : 'bg-pink-400'}"></span>
+                <b class="text-xs ${isUrgent ? 'text-amber-300' : 'text-pink-300'} font-semibold">${escapeHtml(sender)}</b>
+              </div>
+              <span class="text-[10px] font-mono text-slate-400">${escapeHtml(time)}</span>
+            </div>
+            <p class="text-xs text-slate-200 leading-relaxed pl-3 border-l-2 ${isUrgent ? 'border-amber-500/50' : 'border-pink-500/30'}">
+              ${escapeHtml(text)}
+            </p>
+          </div>
+        `;
+      });
+      listContainer.innerHTML = html;
+    }
+
+    async function clearConciergeInbox() {
+      if (confirm("Kotiba qutisidagi barcha yozib olingan xabarlarni tozalaysizmi?")) {
+        triggerHaptic('impact', 'medium');
+        const res = await apiRequest('/api/concierge/inbox/clear', 'POST', {});
+        if (res && res.status === 'success') {
+          showToast("Kotiba qutisi tozalandi!", "success");
+          refreshConciergeInbox();
+          refreshData();
+        }
+      }
+    }
+
+    // -------------------------------------------------------------------------
+    // 9. Visual Surveillance & Click-to-Zoom Modals
+    // -------------------------------------------------------------------------
+    let activeSurveillanceType = 'desktop';
+
+    function openSurveillanceModal(type = 'desktop') {
+      triggerHaptic('impact', 'light');
+      activeSurveillanceType = type;
+      const modal = document.getElementById('surveillance-modal');
+      const title = document.getElementById('surveillance-modal-title');
+      if (title) {
+        title.innerHTML = (type === 'desktop') ? '<span>🖥️ Jonli Ekran Surati</span>' : '<span>📷 Jonli Veb-Kamera</span>';
+      }
+      if (modal) modal.classList.remove('hidden');
+      refreshSurveillanceImage();
+      requestWakeLock();
+    }
+
+    function closeSurveillanceModal() {
+      triggerHaptic('impact', 'light');
+      const modal = document.getElementById('surveillance-modal');
+      if (modal) modal.classList.add('hidden');
+      releaseWakeLock();
+    }
+
+    function refreshSurveillanceImage() {
+      triggerHaptic('impact', 'light');
+      const img = document.getElementById('surveillance-modal-img');
+      const loader = document.getElementById('surveillance-modal-loader');
+      const freshness = document.getElementById('surveillance-freshness');
+      if (loader) loader.classList.remove('hidden');
+
+      const url = (activeSurveillanceType === 'desktop') ? '/api/screenshot' : '/api/camera';
+      const key = getAuthKey();
+      const freshUrl = `${url}?api_key=${encodeURIComponent(key)}&_t=${Date.now()}`;
+
+      if (img) {
+        img.onload = () => {
+          if (loader) loader.classList.add('hidden');
+          if (freshness) freshness.textContent = `Yangilanish: ${new Date().toLocaleTimeString()} (Jonli)`;
+        };
+        img.onerror = () => {
+          if (loader) loader.classList.add('hidden');
+          if (freshness) freshness.textContent = 'Tasvirni yuklashda xatolik yuz berdi.';
+        };
+        img.src = freshUrl;
+      }
+    }
+
+    // Click-to-zoom inline images
+    function openImageZoomModal(imgSrc) {
+      triggerHaptic('impact', 'light');
+      const modal = document.getElementById('image-zoom-modal');
+      const target = document.getElementById('image-zoom-target');
+      if (modal && target) {
+        target.src = imgSrc;
+        modal.classList.remove('hidden');
+      }
+    }
+
+    function closeImageZoomModal() {
+      triggerHaptic('impact', 'light');
+      const modal = document.getElementById('image-zoom-modal');
+      if (modal) modal.classList.add('hidden');
+    }
+
+    // -------------------------------------------------------------------------
+    // 10. Omni-Knowledge Search Engine
+    // -------------------------------------------------------------------------
+    async function executeOmniSearch() {
+      const q = document.getElementById('omni-search-input')?.value.trim();
+      if (!q) return;
+
+      triggerHaptic('impact', 'light');
+      const resContainer = document.getElementById('omni-results');
+      const resBody = document.getElementById('omni-results-body');
+      if (resBody) resBody.innerHTML = '<span class="text-cyan-400 font-mono text-[11px]">Qidirilmoqda...</span>';
+      if (resContainer) resContainer.classList.remove('hidden');
+
+      const data = await apiRequest(`/api/omni/search?q=${encodeURIComponent(q)}`, 'GET');
+      if (resBody) resBody.innerHTML = '';
+
+      if (!data || !data.results) {
+        if (resBody) resBody.innerHTML = '<span class="text-slate-400">Hech narsa topilmadi.</span>';
+        return;
+      }
+
+      const r = data.results;
+      let hasMatches = false;
+
+      if (r.files && r.files.length > 0) {
+        hasMatches = true;
+        r.files.forEach(f => {
+          resBody.innerHTML += `
+            <div class="p-2 rounded-lg bg-slate-900 border border-white/5 flex justify-between items-center">
+              <div>
+                <b class="text-cyan-300">📁 ${escapeHtml(f.name)}</b>
+                <span class="block text-[10px] text-slate-500">${f.size_mb || 0} MB</span>
+              </div>
+              <button onclick="sendQuickPrompt('${escapeJs(f.name)} faylini ko\\'rsat')" class="px-2 py-1 bg-cyan-600/30 text-cyan-300 rounded text-[10px]">Ko'rish</button>
+            </div>
+          `;
+        });
+      }
+
+      if (r.apps && r.apps.length > 0) {
+        hasMatches = true;
+        r.apps.forEach(a => {
+          resBody.innerHTML += `
+            <div class="p-2 rounded-lg bg-slate-900 border border-white/5 flex justify-between items-center">
+              <div>
+                <b class="text-purple-300">🚀 ${escapeHtml(a.name)}</b>
+                <span class="block text-[10px] text-slate-500 truncate max-w-[200px]">${escapeHtml(a.path)}</span>
+              </div>
+              <button onclick="sendQuickPrompt('${escapeJs(a.name)} dasturini och')" class="px-2 py-1 bg-purple-600/30 text-purple-300 rounded text-[10px]">Ochish</button>
+            </div>
+          `;
+        });
+      }
+
+      if (!hasMatches && resBody) {
+        resBody.innerHTML = '<span class="text-slate-400">Ushbu so\'rov bo\'yicha hech narsa topilmadi.</span>';
+      }
+    }
+
+    // -------------------------------------------------------------------------
+    // 11. PWA Engine & Screen Wake Lock
+    // -------------------------------------------------------------------------
+    let deferredInstallPrompt = null;
+    let wakeLockSentinel = null;
+
+    let refreshing = false;
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/sw.js', { scope: '/' })
+          .then((reg) => {
+            console.log('[PWA] Service Worker registered. Scope:', reg.scope);
+            // Check for Service Worker updates immediately on load
+            reg.update().catch(() => {});
+          })
+          .catch((err) => { console.warn('[PWA] Service Worker registration failed:', err); });
+      });
+
+      // Reload page when new service worker takes control
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        if (!refreshing) {
+          refreshing = true;
+          console.log('[PWA] New controller active. Reloading to apply update...');
+          window.location.reload();
+        }
+      });
+    }
+
+    async function forceAppUpdate() {
+      showToast("Kesh tozalanmoqda va yangi versiya yuklanmoqda...", "info");
+      try {
+        if ('serviceWorker' in navigator) {
+          const registrations = await navigator.serviceWorker.getRegistrations();
+          for (let reg of registrations) {
+            const scriptURL = reg.active?.scriptURL || reg.installing?.scriptURL || reg.waiting?.scriptURL || '';
+            if (scriptURL.includes('sw.js') || reg.scope.includes('/')) {
+              await reg.unregister();
+            }
+          }
+        }
+        if ('caches' in window) {
+          const cacheKeys = await caches.keys();
+          await Promise.all(
+            cacheKeys
+              .filter(k => k.startsWith('monika-'))
+              .map(k => caches.delete(k))
+          );
+        }
+        sessionStorage.clear();
+        setTimeout(() => {
+          window.location.href = window.location.pathname + '?refresh=' + Date.now();
+        }, 500);
+      } catch (err) {
+        console.error("Force update failed:", err);
+        window.location.reload();
+      }
+    }
+
+    window.addEventListener('beforeinstallprompt', (e) => {
+      e.preventDefault();
+      deferredInstallPrompt = e;
+      const banner = document.getElementById('pwa-install-banner');
+      if (banner && !sessionStorage.getItem('pwa_banner_dismissed')) {
+        banner.classList.remove('hidden');
+      }
+    });
+
+    function installPWA() {
+      if (deferredInstallPrompt) {
+        deferredInstallPrompt.prompt();
+        deferredInstallPrompt = null;
+        const banner = document.getElementById('pwa-install-banner');
+        if (banner) banner.classList.add('hidden');
+      } else {
+        showToast("Brauzer menyusidan 'Add to Home screen' ni tanlang.", "info");
+      }
+    }
+
+    function dismissInstallBanner() {
+      const banner = document.getElementById('pwa-install-banner');
+      if (banner) banner.classList.add('hidden');
+      sessionStorage.setItem('pwa_banner_dismissed', '1');
+    }
+
+    async function requestWakeLock() {
+      try {
+        if ('wakeLock' in navigator && !wakeLockSentinel) {
+          const sentinel = await navigator.wakeLock.request('screen');
+          // If modal was closed while requesting wake lock, release sentinel immediately
+          const modal = document.getElementById('surveillance-modal');
+          if (modal && modal.classList.contains('hidden')) {
+            await sentinel.release();
+            return;
+          }
+          wakeLockSentinel = sentinel;
+          wakeLockSentinel.addEventListener('release', () => { wakeLockSentinel = null; });
+        }
+      } catch (err) {}
+    }
+
+    function releaseWakeLock() {
+      if (wakeLockSentinel) {
+        wakeLockSentinel.release();
+        wakeLockSentinel = null;
+      }
+    }
+
+    // Periodic telemetry polling every 5 seconds
+    setInterval(() => {
+      refreshData();
+    }, 5000);
+
+    // Initial Boot
+    function bootApp() {
+      refreshData();
+      loadChatHistory();
+      refreshConciergeInbox();
+
+      // PWA shortcut routing via URL hash
+      if (window.location.hash === '#vision') {
+        openSurveillanceModal('camera');
+      }
+    }
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', bootApp);
+    } else {
+      bootApp();
+    }
+  </script>
+</body>
+</html>

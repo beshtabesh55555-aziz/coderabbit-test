@@ -29,7 +29,7 @@ TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_ADMIN_CHAT_ID = os.getenv("TELEGRAM_ADMIN_CHAT_ID", "")
 
 # Security & WebApp Settings
-WEBAPP_API_KEY = os.getenv("WEBAPP_API_KEY", "monika-secret-key-2026")
+WEBAPP_API_KEY = os.getenv("WEBAPP_API_KEY", "")
 ADMIN_PIN = os.getenv("ADMIN_PIN", "1234")
 
 # Vision Settings
