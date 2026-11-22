@@ -36,6 +36,7 @@ import logging
 import os
 import subprocess
 import sys
+import tempfile
 import time
 from collections import deque
 from datetime import datetime, timezone
@@ -109,6 +110,14 @@ class JarvisWatchdog:
         self._known_snapshot_files: set[str] = set()
         self._last_incident_report: Optional[Dict[str, Any]] = None
         self._reset_timestamp: float = 0.0
+        if self.incident_report_file.exists():
+            try:
+                with open(self.incident_report_file, "r", encoding="utf-8") as f:
+                    ir_data = json.load(f)
+                    if ir_data.get("status") == "RESOLVED":
+                        self._reset_timestamp = float(ir_data.get("reset_timestamp", 0.0))
+            except Exception:
+                pass
 
         # Pre-seed known snapshots so existing old files aren't miscounted
         self._scan_existing_snapshots()
@@ -537,16 +546,26 @@ class JarvisWatchdog:
         return incident_payload
 
     def _save_incident_report_file(self, report_data: Dict[str, Any]) -> None:
-        """Atomic safe write to incident_report.json."""
+        """Atomic safe write to incident_report.json using a unique temporary file."""
+        tmp_path_str = ""
         try:
             self.incident_report_file.parent.mkdir(parents=True, exist_ok=True)
-            tmp = self.incident_report_file.with_suffix(".tmp")
-            with open(tmp, "w", encoding="utf-8") as f:
+            tmp_fd, tmp_path_str = tempfile.mkstemp(
+                dir=self.incident_report_file.parent,
+                prefix=f".{self.incident_report_file.name}.",
+                suffix=".tmp"
+            )
+            with os.fdopen(tmp_fd, "w", encoding="utf-8") as f:
                 json.dump(report_data, f, indent=2, ensure_ascii=False)
-            tmp.replace(self.incident_report_file)
+            os.replace(tmp_path_str, self.incident_report_file)
             logger.info("Incident report written to: %s", self.incident_report_file)
         except Exception as err:
             logger.error("Failed saving incident report: %s", err)
+            if tmp_path_str and os.path.exists(tmp_path_str):
+                try:
+                    os.remove(tmp_path_str)
+                except OSError:
+                    pass
 
     def send_telegram_emergency_alert(self, reason: str) -> bool:
         """Dispatches HTTP alert to Telegram bot admin chat."""
@@ -624,10 +643,11 @@ class JarvisWatchdog:
 
     def reset_circuit_breaker(self) -> Dict[str, Any]:
         """Resets the circuit breaker state, clears alert history, and marks incident resolved."""
+        now_ts = time.time()
         self.circuit_breaker_tripped = False
         self._cpu_violation_start = None
         self._alert_history.clear()
-        self._reset_timestamp = time.time()
+        self._reset_timestamp = now_ts
 
         updated_report = None
         if self.incident_report_file.exists():
@@ -636,12 +656,21 @@ class JarvisWatchdog:
                     data = json.load(f)
                 data["status"] = "RESOLVED"
                 data["resolved_at"] = datetime.now(timezone.utc).isoformat()
+                data["reset_timestamp"] = now_ts
                 self._save_incident_report_file(data)
                 self._last_incident_report = data
                 updated_report = data
                 logger.info("Circuit breaker reset and incident_report.json marked as RESOLVED.")
             except Exception as e:
                 logger.error("Failed to update incident report on reset: %s", e)
+        else:
+            resolved_stub = {
+                "status": "RESOLVED",
+                "resolved_at": datetime.now(timezone.utc).isoformat(),
+                "reset_timestamp": now_ts
+            }
+            self._save_incident_report_file(resolved_stub)
+            updated_report = resolved_stub
         return updated_report or {"status": "RESOLVED"}
 
     # =========================================================================

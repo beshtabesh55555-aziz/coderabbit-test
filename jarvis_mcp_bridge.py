@@ -169,7 +169,7 @@ class JarvisMCPBridge:
                 cursor = None
                 total_discovered = 0
                 while True:
-                    params = {"cursor": cursor} if cursor else {}
+                    params = {"cursor": cursor} if cursor is not None else {}
                     tools_res = srv.send_rpc("tools/list", params)
                     if not tools_res or "result" not in tools_res:
                         break
@@ -185,7 +185,7 @@ class JarvisMCPBridge:
                         }
                         total_discovered += 1
                     cursor = res_obj.get("nextCursor")
-                    if not cursor:
+                    if cursor is None:
                         break
                 logger.info(f"Discovered {total_discovered} tools from MCP server '{name}'.")
         except Exception as e:

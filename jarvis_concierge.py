@@ -715,12 +715,12 @@ class JarvisConcierge:
 
         # Safety Net via Telethon Chat History:
         # Check actual messages on Telegram servers in case of restart or message sent from another device
+        user_recently_chatted = False
         if client and hasattr(client, "get_messages"):
             try:
                 chat_target = getattr(event, "chat_id", None) or sender
-                # Search up to 25 messages back to reliably cover the entire suppression window
-                recent_msgs = await client.get_messages(chat_target, limit=25)
-                user_recently_chatted = False
+                # Search up to 100 messages back to cover the suppression window
+                recent_msgs = await client.get_messages(chat_target, limit=100)
                 for m in recent_msgs:
                     if getattr(m, "date", None):
                         m_ts = m.date.timestamp()
@@ -734,10 +734,11 @@ class JarvisConcierge:
                                 f"{sender_name} at {m.date} ({int(now - m_ts)}s ago < 1200s). Suppressing auto-reply."
                             )
                             break
-                if user_recently_chatted or self.is_user_recently_active_in_chat(sender_id):
-                    return False
             except Exception as e:
                 logger.debug(f"History outgoing check exception (ignored): {e}")
+
+        if user_recently_chatted or self.is_user_recently_active_in_chat(sender_id):
+            return False
 
         # Only activate when Away mode is active (system locked OR toggle flag)
         if not self.is_away_mode_active():

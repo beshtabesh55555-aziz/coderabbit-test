@@ -28,6 +28,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import urllib.parse
@@ -1005,10 +1006,18 @@ class JarvisToolRegistry:
 
             target.parent.mkdir(parents=True, exist_ok=True)
             raw_bytes = str(content).encode("utf-8")
-            tmp_target = target.with_suffix(target.suffix + ".tmp")
-            with open(tmp_target, "w", encoding="utf-8") as f:
-                f.write(content)
-            os.replace(tmp_target, target)
+            tmp_fd, tmp_path_str = tempfile.mkstemp(dir=target.parent, prefix=f".{target.name}.", suffix=".tmp")
+            try:
+                with os.fdopen(tmp_fd, "w", encoding="utf-8") as f:
+                    f.write(content)
+                os.replace(tmp_path_str, target)
+            except Exception:
+                if os.path.exists(tmp_path_str):
+                    try:
+                        os.remove(tmp_path_str)
+                    except OSError:
+                        pass
+                raise
 
             return {
                 "success": True,
@@ -1243,7 +1252,8 @@ class JarvisToolRegistry:
                         "message": f"Reminder '{clean_text}' set successfully {time_desc}.",
                     }
                 except Exception as s_err:
-                    logger.debug(f"Direct scheduler add_reminder error: {s_err}")
+                    logger.error(f"Scheduler add_reminder failed: {s_err}")
+                    return {"success": False, "error": f"Failed to schedule reminder: {s_err}"}
 
             with _get_path_lock(self.reminders_file):
                 reminders: List[Dict[str, Any]] = []
