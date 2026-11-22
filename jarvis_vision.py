@@ -799,6 +799,9 @@ class JarvisVision:
                 logger.warning("Monitoring stream already running.")
                 return self._monitor_thread
             self._monitor_thread.join(timeout=2.0)
+            if self._monitor_thread.is_alive():
+                logger.warning("Previous monitoring thread is still alive; refusing to restart stream.")
+                return self._monitor_thread
 
         self._stop_event.clear()
         self.is_monitoring = True
@@ -932,7 +935,7 @@ def run_cli():
             print(f"Mode: HARDWARE (Webcam index {vision.actual_camera_index} active)")
 
         print("\n--- [2] Testing Frame Capture ---")
-        ret, frame = vision.read_frame()
+        ret, frame, _ = vision.read_frame()
         if ret and frame is not None:
             shape_str = str(frame.shape) if hasattr(frame, "shape") else "OK"
             print(f"Frame capture SUCCESS: shape = {shape_str}")
@@ -974,7 +977,7 @@ def run_cli():
 
     if args.analyze:
         print(f"\nCapturing frame and querying Gemini Vision with prompt: '{args.prompt}'...")
-        ret, frame = vision.read_frame()
+        ret, frame, _ = vision.read_frame()
         snap_path = vision.capture_snapshot(annotated=False)
         print(f"Snapshot captured: {snap_path}")
         analysis = vision.describe_current_view(prompt=args.prompt, frame=frame)
