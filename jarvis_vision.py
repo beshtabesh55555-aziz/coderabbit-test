@@ -282,9 +282,10 @@ class JarvisVision:
                 logger.warning(f"Failed to create MOG2 subtractor: {e}")
                 self.bg_subtractor = None
 
-    def read_frame(self) -> Tuple[bool, Optional[Any]]:
+    def read_frame(self) -> Tuple[bool, Optional[Any], bool]:
         """
         Read the next frame from the camera or generate a synthetic frame.
+        Returns (success, frame, is_fallback).
         Thread-safe using re-entrant RLock.
         """
         with self.lock:
@@ -293,8 +294,7 @@ class JarvisVision:
                     ret, frame = self.cap.read()
                     if ret and frame is not None and frame.size > 0:
                         self.last_frame = frame.copy()
-                        self._last_frame_is_fallback = False
-                        return True, frame
+                        return True, frame, False
                     else:
                         logger.warning("Camera read failed, returning fallback simulation frame.")
                 except Exception as e:
@@ -304,9 +304,8 @@ class JarvisVision:
             sim_frame = self._generate_simulation_frame()
             if sim_frame is not None:
                 self.last_frame = sim_frame.copy()
-                self._last_frame_is_fallback = True
-                return True, sim_frame
-            return False, None
+                return True, sim_frame, True
+            return False, None, True
 
     def _generate_simulation_frame(self) -> Any:
         """
@@ -374,16 +373,19 @@ class JarvisVision:
         return None
 
     def process_motion(
-        self, frame: Any
+        self,
+        frame: Any,
+        is_fallback: bool = False,
     ) -> Tuple[bool, List[Tuple[int, int, int, int]], Any]:
         """
         Analyze a frame for motion using BGR MOG2 background subtraction with shadow discrimination
         and morphological opening, or safe frame differencing fallback.
 
         Implements Edge-Triggered Alerting with 2.0s exit hysteresis.
-        Strictly suppresses security alerts (on_motion_detected) in simulation mode.
+        Strictly suppresses security alerts (on_motion_detected) in simulation mode or fallback frames.
 
         :param frame: Image frame (NumPy ndarray or SimulatedFrame)
+        :param is_fallback: True if this frame is a synthetic simulation fallback frame
         :return: (is_motion_active, bounding_boxes, annotated_frame)
         """
         if frame is None:
@@ -394,8 +396,8 @@ class JarvisVision:
         raw_motion = False
         annotated_frame = frame.copy() if hasattr(frame, "copy") else frame
 
-        # Check if running real OpenCV pipeline
-        if not self.is_simulation_mode and CV2_AVAILABLE and np is not None and isinstance(frame, np.ndarray):
+        # Check if running real OpenCV pipeline on a physical camera frame
+        if not self.is_simulation_mode and not is_fallback and CV2_AVAILABLE and np is not None and isinstance(frame, np.ndarray):
             h, w = frame.shape[:2]
             proc_w = 640
             proc_h = int(h * (proc_w / w)) if w > 0 else 480
@@ -494,7 +496,7 @@ class JarvisVision:
                 logger.info("Motion started: Target entered camera field of view (rising edge).")
 
                 # Strictly suppress security callbacks (on_motion_detected) in simulation mode or fallback frames!
-                if not self.is_simulation_mode and not self._last_frame_is_fallback:
+                if not self.is_simulation_mode and not is_fallback:
                     if (now - self.last_motion_alert_time) >= self.cooldown:
                         self.last_motion_alert_time = now
                         logger.info(f"Triggering motion alert (rising edge, cooldown {self.cooldown}s satisfied).")
@@ -508,7 +510,7 @@ class JarvisVision:
                     logger.debug("Motion detected in SIMULATION/fallback mode: security alert strictly suppressed.")
             else:
                 # Sustained motion: check cooldown for recurring alert
-                if not self.is_simulation_mode and not self._last_frame_is_fallback:
+                if not self.is_simulation_mode and not is_fallback:
                     if (now - self.last_motion_alert_time) >= self.cooldown:
                         self.last_motion_alert_time = now
                         logger.info(f"Triggering recurring motion alert (cooldown {self.cooldown}s satisfied).")
@@ -615,7 +617,7 @@ class JarvisVision:
             elif self.last_frame is not None:
                 frame_to_save = self.last_frame
             else:
-                ret, frame_read = self.read_frame()
+                ret, frame_read, _ = self.read_frame()
                 frame_to_save = frame_read if ret else None
 
         if frame_to_save is None:
@@ -773,12 +775,12 @@ class JarvisVision:
         Yields (annotated_frame, motion_detected, bounding_boxes).
         """
         while not self._stop_event.is_set():
-            ret, frame = self.read_frame()
+            ret, frame, is_fallback = self.read_frame()
             if not ret or frame is None:
                 time.sleep(0.05)
                 continue
 
-            motion_detected, boxes, annotated = self.process_motion(frame)
+            motion_detected, boxes, annotated = self.process_motion(frame, is_fallback=is_fallback)
             yield annotated, motion_detected, boxes
             time.sleep(0.04)
 
@@ -793,8 +795,10 @@ class JarvisVision:
         :return: Monitoring thread object
         """
         if self._monitor_thread and self._monitor_thread.is_alive():
-            logger.warning("Monitoring stream already running.")
-            return self._monitor_thread
+            if not self._stop_event.is_set():
+                logger.warning("Monitoring stream already running.")
+                return self._monitor_thread
+            self._monitor_thread.join(timeout=2.0)
 
         self._stop_event.clear()
         self.is_monitoring = True
@@ -808,9 +812,9 @@ class JarvisVision:
             while not self._stop_event.is_set():
                 t0 = time.time()
                 try:
-                    ret, frame = self.read_frame()
+                    ret, frame, is_fallback = self.read_frame()
                     if ret and frame is not None:
-                        motion_detected, boxes, annotated = self.process_motion(frame)
+                        motion_detected, boxes, annotated = self.process_motion(frame, is_fallback=is_fallback)
                         if callback:
                             try:
                                 callback(annotated, motion_detected, boxes)

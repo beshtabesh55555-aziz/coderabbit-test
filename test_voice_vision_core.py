@@ -93,7 +93,7 @@ class TestJarvisVision(unittest.TestCase):
     def test_04_vision_simulation_mode(self):
         """Verify simulation mode produces synthetic frames without hardware camera access."""
         self.assertTrue(self.vision.is_simulation_mode)
-        success, frame = self.vision.read_frame()
+        success, frame = self.vision.read_frame()[:2]
         self.assertTrue(success)
         self.assertIsNotNone(frame)
         self.assertEqual(len(frame.shape), 3)

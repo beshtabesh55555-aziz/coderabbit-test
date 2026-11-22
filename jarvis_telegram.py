@@ -178,7 +178,7 @@ class JarvisTelegram:
 
                 if self.system and hasattr(self.system, "is_workstation_locked"):
                     try:
-                        if not self.system.is_workstation_locked() and self.security_state != "ARMED":
+                        if not self.system.is_workstation_locked():
                             logger.info("Alert worker: Workstation is active/unlocked. Dropping queued alert.")
                             self._alert_queue.task_done()
                             continue

@@ -40,7 +40,20 @@ try:
         if proc.pid == my_pid or proc.pid == my_ppid:
             continue
         try:
-            cmdline_parts = [str(Path(arg).resolve()).lower() if Path(arg).exists() else arg.lower() for arg in (proc.info.get('cmdline') or [])]
+            try:
+                proc_cwd = Path(proc.cwd())
+            except Exception:
+                proc_cwd = Path.cwd()
+
+            cmdline_parts = []
+            for arg in (proc.info.get('cmdline') or []):
+                p = Path(arg)
+                if p.is_absolute():
+                    cmdline_parts.append(str(p.resolve()).lower())
+                else:
+                    resolved = proc_cwd / p
+                    cmdline_parts.append(str(resolved.resolve()).lower() if resolved.exists() else arg.lower())
+
             if my_script in cmdline_parts:
                 logger.warning(f"Terminating duplicate tunnel_runner process (PID {proc.pid})...")
                 proc.kill()

@@ -494,9 +494,22 @@ class JarvisUserTelegram:
                 advice = "Barcha muloqotlar holati yaxshi, shoshilinch xabarlar yo'q."
 
             md_lines.append(f"💡 <b>Monika Tahlili:</b> <i>{advice}</i>")
-            markdown_text = "\n".join(md_lines)
-            if len(markdown_text) > 4000:
-                markdown_text = markdown_text[:3900] + "\n\n<i>...(Xabarlar ko'pligi sababli qisqartirildi)</i>"
+
+            bounded_lines = []
+            current_len = 0
+            max_limit = 3850
+            truncated = False
+            for line in md_lines:
+                if current_len + len(line) + 1 > max_limit:
+                    truncated = True
+                    break
+                bounded_lines.append(line)
+                current_len += len(line) + 1
+
+            if truncated:
+                bounded_lines.append("<i>...(Qolgan ma'lumotlar xabarlar ko'pligi sababli qisqartirildi)</i>")
+
+            markdown_text = "\n".join(bounded_lines)
 
             # --- BUILD CONCISE SPOKEN VOICE SUMMARY ---
             voice_parts = []

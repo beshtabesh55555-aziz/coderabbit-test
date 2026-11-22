@@ -22,7 +22,7 @@ import subprocess
 import collections
 import numpy as np
 from pathlib import Path
-from typing import Optional, List, Callable
+from typing import Optional, List, Callable, Any
 
 # Load configuration
 try:
@@ -116,10 +116,12 @@ class JarvisVoice:
         logger.info("🛑 Speech playback interrupt requested.")
         self._should_stop_speech = True
         
-        # 1. Clear queued speech
+        # 1. Clear queued speech and release waiting callers
         try:
             while not self._speech_queue.empty():
-                self._speech_queue.get_nowait()
+                item = self._speech_queue.get_nowait()
+                if isinstance(item, tuple) and len(item) == 2 and hasattr(item[1], "set"):
+                    item[1].set()
                 self._speech_queue.task_done()
         except Exception:
             pass
