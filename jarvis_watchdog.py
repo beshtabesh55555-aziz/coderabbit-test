@@ -88,9 +88,18 @@ class JarvisWatchdog:
         self.tick_interval_seconds = tick_interval_seconds
 
         # Telegram Configuration
-        self.telegram_token = (telegram_token or os.getenv("TELEGRAM_BOT_TOKEN", "")).strip()
-        self.telegram_admin_chat_id = str(telegram_admin_chat_id or os.getenv("TELEGRAM_ADMIN_CHAT_ID", "")).strip()
-        self._load_env_config()
+        if telegram_token is not None:
+            self.telegram_token = telegram_token.strip()
+        else:
+            self.telegram_token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
+
+        if telegram_admin_chat_id is not None:
+            self.telegram_admin_chat_id = str(telegram_admin_chat_id).strip()
+        else:
+            self.telegram_admin_chat_id = os.getenv("TELEGRAM_ADMIN_CHAT_ID", "").strip()
+
+        if telegram_token is None and telegram_admin_chat_id is None:
+            self._load_env_config()
 
         # Operational state
         self.is_running: bool = False
@@ -99,6 +108,7 @@ class JarvisWatchdog:
         self._alert_history: deque[float] = deque(maxlen=200)
         self._known_snapshot_files: set[str] = set()
         self._last_incident_report: Optional[Dict[str, Any]] = None
+        self._reset_timestamp: float = 0.0
 
         # Pre-seed known snapshots so existing old files aren't miscounted
         self._scan_existing_snapshots()
@@ -220,7 +230,7 @@ class JarvisWatchdog:
             (is_tripped, alert_count, reason_message)
         """
         now = time.time()
-        window_start = now - self.alert_window_seconds
+        window_start = max(now - self.alert_window_seconds, getattr(self, "_reset_timestamp", 0.0))
 
         # Prune old in-memory alerts
         while self._alert_history and self._alert_history[0] < window_start:
@@ -527,10 +537,13 @@ class JarvisWatchdog:
         return incident_payload
 
     def _save_incident_report_file(self, report_data: Dict[str, Any]) -> None:
-        """Safe write to incident_report.json."""
+        """Atomic safe write to incident_report.json."""
         try:
-            with open(self.incident_report_file, "w", encoding="utf-8") as f:
+            self.incident_report_file.parent.mkdir(parents=True, exist_ok=True)
+            tmp = self.incident_report_file.with_suffix(".tmp")
+            with open(tmp, "w", encoding="utf-8") as f:
                 json.dump(report_data, f, indent=2, ensure_ascii=False)
+            tmp.replace(self.incident_report_file)
             logger.info("Incident report written to: %s", self.incident_report_file)
         except Exception as err:
             logger.error("Failed saving incident report: %s", err)
@@ -614,6 +627,7 @@ class JarvisWatchdog:
         self.circuit_breaker_tripped = False
         self._cpu_violation_start = None
         self._alert_history.clear()
+        self._reset_timestamp = time.time()
 
         updated_report = None
         if self.incident_report_file.exists():
@@ -622,8 +636,7 @@ class JarvisWatchdog:
                     data = json.load(f)
                 data["status"] = "RESOLVED"
                 data["resolved_at"] = datetime.now(timezone.utc).isoformat()
-                with open(self.incident_report_file, "w", encoding="utf-8") as f:
-                    json.dump(data, f, indent=2, ensure_ascii=False)
+                self._save_incident_report_file(data)
                 self._last_incident_report = data
                 updated_report = data
                 logger.info("Circuit breaker reset and incident_report.json marked as RESOLVED.")
@@ -864,6 +877,8 @@ def run_self_tests() -> bool:
             base_dir=temp_dir,
             max_alerts_count=3,
             alert_window_seconds=60.0,
+            telegram_token="",
+            telegram_admin_chat_id="",
         )
         # Inject 4 snapshots into test folder
         now = time.time()

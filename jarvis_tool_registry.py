@@ -71,7 +71,6 @@ def _safe_win32_attach_desktop() -> None:
         hdesk = user32.OpenInputDesktop(0, False, 0x01FF)
         if hdesk:
             user32.SetThreadDesktop(hdesk)
-            user32.CloseDesktop(hdesk)
     except Exception:
         pass
 
@@ -88,21 +87,24 @@ def _win32_read_clipboard() -> str:
     user32 = ctypes.windll.user32
     kernel32 = ctypes.windll.kernel32
     if not user32.OpenClipboard(0):
-        return _FALLBACK_CLIPBOARD_TEXT
+        return ""
     try:
+        user32.GetClipboardData.restype = wintypes.HANDLE
         h_clip = user32.GetClipboardData(CF_UNICODETEXT)
         if not h_clip:
-            return _FALLBACK_CLIPBOARD_TEXT
+            return ""
+        kernel32.GlobalLock.argtypes = [wintypes.HGLOBAL]
         kernel32.GlobalLock.restype = ctypes.c_wchar_p
         ptr = kernel32.GlobalLock(h_clip)
         text = str(ptr) if ptr else ""
+        kernel32.GlobalUnlock.argtypes = [wintypes.HGLOBAL]
         kernel32.GlobalUnlock(h_clip)
         if text:
             _FALLBACK_CLIPBOARD_TEXT = text
-        return text or _FALLBACK_CLIPBOARD_TEXT
+        return text
     except Exception as e:
         logger.debug(f"Win32 clipboard read failed: {e}")
-        return _FALLBACK_CLIPBOARD_TEXT
+        return ""
     finally:
         try:
             user32.CloseClipboard()
@@ -120,26 +122,54 @@ def _win32_write_clipboard(text: str) -> bool:
     user32 = ctypes.windll.user32
     kernel32 = ctypes.windll.kernel32
     if not user32.OpenClipboard(0):
-        return True
+        return False
     try:
         user32.EmptyClipboard()
         text_bytes = (text + "\0").encode("utf-16-le")
+        kernel32.GlobalAlloc.argtypes = [wintypes.UINT, ctypes.c_size_t]
+        kernel32.GlobalAlloc.restype = wintypes.HGLOBAL
         h_mem = kernel32.GlobalAlloc(0x0042, len(text_bytes))  # GHND
-        if h_mem:
-            ptr = kernel32.GlobalLock(h_mem)
-            ctypes.memmove(ptr, text_bytes, len(text_bytes))
-            kernel32.GlobalUnlock(h_mem)
-            user32.SetClipboardData(CF_UNICODETEXT, h_mem)
-            return True
+        if not h_mem:
+            return False
+
+        kernel32.GlobalLock.argtypes = [wintypes.HGLOBAL]
+        kernel32.GlobalLock.restype = ctypes.c_void_p
+        ptr = kernel32.GlobalLock(h_mem)
+        if not ptr:
+            kernel32.GlobalFree(h_mem)
+            return False
+
+        ctypes.memmove(ptr, text_bytes, len(text_bytes))
+        kernel32.GlobalUnlock.argtypes = [wintypes.HGLOBAL]
+        kernel32.GlobalUnlock(h_mem)
+
+        user32.SetClipboardData.argtypes = [wintypes.UINT, wintypes.HANDLE]
+        user32.SetClipboardData.restype = wintypes.HANDLE
+        res = user32.SetClipboardData(CF_UNICODETEXT, h_mem)
+        if not res:
+            kernel32.GlobalFree(h_mem)
+            return False
         return True
     except Exception as e:
         logger.debug(f"Win32 clipboard write failed: {e}")
-        return True
+        return False
     finally:
         try:
             user32.CloseClipboard()
         except Exception:
             pass
+
+
+_GLOBAL_FILE_LOCKS: Dict[str, threading.Lock] = {}
+_GLOBAL_FILE_LOCKS_LOCK = threading.Lock()
+
+
+def _get_path_lock(path: Union[str, Path]) -> threading.Lock:
+    resolved = str(Path(path).resolve())
+    with _GLOBAL_FILE_LOCKS_LOCK:
+        if resolved not in _GLOBAL_FILE_LOCKS:
+            _GLOBAL_FILE_LOCKS[resolved] = threading.Lock()
+        return _GLOBAL_FILE_LOCKS[resolved]
 
 
 class JarvisToolRegistry:
@@ -177,9 +207,9 @@ class JarvisToolRegistry:
         self.reminders_file = self.base_dir / "reminders.json"
         self.notes_file = self.base_dir / "quick_notes.json"
 
-        # Initialize or lazily import dependencies
-        self.sensor = sensor or self._lazy_load_sensor()
+        # Initialize or lazily import dependencies (desktop must be initialized before sensor)
         self.desktop = desktop or self._lazy_load_desktop()
+        self.sensor = sensor or self._lazy_load_sensor()
         self.system = system or self._lazy_load_system()
         self.safety = safety or self._lazy_load_safety()
         self.scheduler = scheduler
@@ -379,8 +409,10 @@ class JarvisToolRegistry:
                 res = ctypes.windll.user32.LockWorkStation()
                 if res != 0:
                     return {"success": True, "message": "Workstation locked successfully."}
-                subprocess.run(["rundll32.exe", "user32.dll,LockWorkStation"], check=False)
-                return {"success": True, "message": "Workstation locked via rundll32 fallback."}
+                ret = subprocess.run(["rundll32.exe", "user32.dll,LockWorkStation"], check=False)
+                if ret.returncode == 0:
+                    return {"success": True, "message": "Workstation locked via rundll32 fallback."}
+                return {"success": False, "error": f"Workstation lock failed with exit code {ret.returncode}"}
             return {"success": False, "error": "Workstation lock is only supported on Windows OS."}
         except Exception as e:
             logger.error(f"lock_computer error: {e}", exc_info=True)
@@ -399,6 +431,17 @@ class JarvisToolRegistry:
             clean_pin = str(pin).strip()
             if not clean_pin:
                 return {"success": False, "error": "PIN/password cannot be empty."}
+
+            if self.system and hasattr(self.system, "get_lock_status"):
+                status_res = self.system.get_lock_status()
+                # If workstation is already unlocked, avoid typing PIN into foreground app
+                if status_res.get("is_locked") is False and not status_res.get("error"):
+                    return {
+                        "success": True,
+                        "action": "wake_and_unlock",
+                        "is_locked": False,
+                        "message": "Computer is already unlocked; skipping PIN entry."
+                    }
 
             if self.sensor and hasattr(self.sensor, "unlock_with_pin"):
                 res = self.sensor.unlock_with_pin(clean_pin)
@@ -536,16 +579,19 @@ class JarvisToolRegistry:
             # generate a valid desktop frame so endpoints and tools remain functional.
             try:
                 from PIL import Image, ImageDraw
-                save_dir = self.base_dir / "snapshots"
+                save_dir = (self.base_dir / "snapshots").resolve()
                 save_dir.mkdir(parents=True, exist_ok=True)
-                target_fname = filename or "live_desktop.jpg"
-                if not target_fname.endswith((".png", ".jpg", ".jpeg")):
-                    target_fname += ".jpg"
-                fallback_path = save_dir / target_fname
+                clean_fname = Path(filename).name if filename else "live_desktop.jpg"
+                if not clean_fname.lower().endswith((".png", ".jpg", ".jpeg")):
+                    clean_fname += ".jpg"
+                fallback_path = (save_dir / clean_fname).resolve()
+                if not str(fallback_path).startswith(str(save_dir)):
+                    fallback_path = save_dir / "live_desktop.jpg"
                 img = Image.new("RGB", (1366, 768), color=(15, 23, 42))
                 draw = ImageDraw.Draw(img)
                 draw.text((60, 60), "JARVIS System Desktop Feed [Protected Session]", fill=(200, 220, 255))
-                img.save(str(fallback_path), "JPEG")
+                fmt = "PNG" if fallback_path.suffix.lower() == ".png" else "JPEG"
+                img.save(str(fallback_path), fmt)
                 ts = datetime.now().isoformat()
                 logger.info(f"Generated resilient desktop frame at: {fallback_path}")
                 return {
@@ -670,8 +716,20 @@ class JarvisToolRegistry:
                 if isinstance(res, dict):
                     return res
 
-            # Direct fallback using taskkill
-            target = clean_name if clean_name.endswith(".exe") else f"{clean_name}.exe"
+            # Direct fallback using taskkill with protected process safeguards
+            PROTECTED_PROCESSES = {
+                "csrss.exe", "smss.exe", "lsass.exe", "services.exe", "wininit.exe",
+                "winlogon.exe", "system", "idle", "svchost.exe", "explorer.exe",
+                "python.exe", "cloudflared.exe"
+            }
+            target = clean_name.lower() if clean_name.lower().endswith(".exe") else f"{clean_name.lower()}.exe"
+            if target in PROTECTED_PROCESSES:
+                return {
+                    "success": False,
+                    "app": name,
+                    "error": f"Refusing to terminate protected system or runner process: '{target}'"
+                }
+
             tk = subprocess.run(["taskkill", "/F", "/IM", target], capture_output=True, text=True)
             if tk.returncode == 0:
                 return {"success": True, "app": name, "killed_count": 1, "message": f"Closed '{name}'."}
@@ -802,8 +860,10 @@ class JarvisToolRegistry:
             if not clean_q:
                 return {"success": False, "error": "Search query cannot be empty."}
 
-            if root_folder and os.path.exists(root_folder):
+            if root_folder:
                 search_root = Path(root_folder).resolve()
+                if not search_root.exists() or not search_root.is_dir():
+                    return {"success": False, "error": f"Search root directory does not exist or is not a directory: '{root_folder}'"}
             else:
                 search_root = Path(os.path.expanduser("~")).resolve()
 
@@ -891,19 +951,28 @@ class JarvisToolRegistry:
             lines: List[str] = []
             total_lines = 0
 
-            # Encoding fallback sequence
+            # Encoding fallback sequence with progressive strict-to-permissive decode
             content_text = ""
-            for enc in ("utf-8", "utf-8-sig", "latin-1", "cp1252"):
+            read_success = False
+            last_err = None
+            for enc, err_mode in (("utf-8", "strict"), ("utf-8-sig", "strict"), ("cp1252", "strict"), ("latin-1", "replace")):
                 try:
-                    with open(target, "r", encoding=enc, errors="replace") as f:
+                    lines = []
+                    total_lines = 0
+                    with open(target, "r", encoding=enc, errors=err_mode) as f:
                         for idx, line in enumerate(f):
                             total_lines += 1
                             if idx < clamped_lines:
                                 lines.append(line.rstrip("\r\n"))
                     content_text = "\n".join(lines)
+                    read_success = True
                     break
-                except Exception:
+                except Exception as ex:
+                    last_err = ex
                     continue
+
+            if not read_success:
+                return {"success": False, "error": f"Failed to read file content: {last_err}"}
 
             return {
                 "success": True,
@@ -936,8 +1005,10 @@ class JarvisToolRegistry:
 
             target.parent.mkdir(parents=True, exist_ok=True)
             raw_bytes = str(content).encode("utf-8")
-            with open(target, "w", encoding="utf-8") as f:
+            tmp_target = target.with_suffix(target.suffix + ".tmp")
+            with open(tmp_target, "w", encoding="utf-8") as f:
                 f.write(content)
+            os.replace(tmp_target, target)
 
             return {
                 "success": True,
@@ -993,7 +1064,15 @@ class JarvisToolRegistry:
                 return {"success": False, "error": "Google search query cannot be empty."}
 
             url = f"https://www.google.com/search?q={urllib.parse.quote_plus(clean_q)}"
-            webbrowser.open(url)
+            opened = webbrowser.open(url)
+            if not opened and hasattr(os, "startfile"):
+                try:
+                    os.startfile(url)
+                    opened = True
+                except Exception:
+                    opened = False
+            if not opened:
+                return {"success": False, "error": f"Failed to launch browser for Google search: {url}"}
             return {
                 "success": True,
                 "query": clean_q,
@@ -1021,7 +1100,15 @@ class JarvisToolRegistry:
             if not clean_url.startswith(("http://", "https://")):
                 clean_url = "https://" + clean_url
 
-            webbrowser.open(clean_url)
+            opened = webbrowser.open(clean_url)
+            if not opened and hasattr(os, "startfile"):
+                try:
+                    os.startfile(clean_url)
+                    opened = True
+                except Exception:
+                    opened = False
+            if not opened:
+                return {"success": False, "error": f"Failed to launch browser for URL: {clean_url}"}
             return {
                 "success": True,
                 "url": clean_url,
@@ -1046,7 +1133,15 @@ class JarvisToolRegistry:
                 return {"success": False, "error": "YouTube query cannot be empty."}
 
             url = f"https://www.youtube.com/results?search_query={urllib.parse.quote_plus(clean_q)}"
-            webbrowser.open(url)
+            opened = webbrowser.open(url)
+            if not opened and hasattr(os, "startfile"):
+                try:
+                    os.startfile(url)
+                    opened = True
+                except Exception:
+                    opened = False
+            if not opened:
+                return {"success": False, "error": f"Failed to launch browser for YouTube search: {url}"}
             return {
                 "success": True,
                 "query": clean_q,
@@ -1130,7 +1225,10 @@ class JarvisToolRegistry:
 
             now = time.time()
             now_dt = datetime.now()
-            delay = int(delay_minutes) if delay_minutes and delay_minutes > 0 else 0
+            try:
+                delay = int(delay_minutes) if delay_minutes is not None and int(delay_minutes) > 0 else 0
+            except (ValueError, TypeError):
+                delay = 0
 
             trigger_ts = now + (delay * 60) if delay > 0 else now
             trigger_str = (now_dt + timedelta(minutes=delay)).strftime("%Y-%m-%d %H:%M:%S")
@@ -1147,7 +1245,7 @@ class JarvisToolRegistry:
                 except Exception as s_err:
                     logger.debug(f"Direct scheduler add_reminder error: {s_err}")
 
-            with self._lock:
+            with _get_path_lock(self.reminders_file):
                 reminders: List[Dict[str, Any]] = []
                 if self.reminders_file.exists():
                     try:
@@ -1168,7 +1266,7 @@ class JarvisToolRegistry:
                     "created_at": now_dt.strftime("%Y-%m-%d %H:%M:%S"),
                     "trigger_timestamp": trigger_ts,
                     "trigger_time": trigger_str,
-                    "status": "PENDING",
+                    "status": "pending",
                 }
                 reminders.append(new_rem)
 
@@ -1206,7 +1304,7 @@ class JarvisToolRegistry:
                 rems = self.scheduler.list_reminders(status="pending")
                 return {"success": True, "count": len(rems), "reminders": rems}
 
-            with self._lock:
+            with _get_path_lock(self.reminders_file):
                 if not self.reminders_file.exists():
                     return {"success": True, "count": 0, "reminders": []}
 
@@ -1242,7 +1340,7 @@ class JarvisToolRegistry:
 
             now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-            with self._lock:
+            with _get_path_lock(self.notes_file):
                 notes: List[Dict[str, Any]] = []
                 if self.notes_file.exists():
                     try:
@@ -1288,7 +1386,7 @@ class JarvisToolRegistry:
             dict: Total count and list of saved quick note records.
         """
         try:
-            with self._lock:
+            with _get_path_lock(self.notes_file):
                 if not self.notes_file.exists():
                     return {"success": True, "count": 0, "notes": []}
 
@@ -1645,16 +1743,25 @@ class JarvisToolRegistry:
                 if param_name == "self":
                     continue
 
+                ann = param.annotation
+                import typing
+                origin = typing.get_origin(ann)
+                args = typing.get_args(ann)
+                if origin is typing.Union:
+                    non_none = [a for a in args if a is not type(None)]
+                    if non_none:
+                        ann = non_none[0]
+
                 type_name = "string"
-                if param.annotation == int:
+                if ann == int:
                     type_name = "integer"
-                elif param.annotation == float:
+                elif ann == float:
                     type_name = "number"
-                elif param.annotation == bool:
+                elif ann == bool:
                     type_name = "boolean"
-                elif param.annotation == list:
+                elif ann in (list, List) or typing.get_origin(ann) in (list, List):
                     type_name = "array"
-                elif param.annotation == dict:
+                elif ann in (dict, Dict) or typing.get_origin(ann) in (dict, Dict):
                     type_name = "object"
 
                 # Extract param docstring if available

@@ -285,12 +285,15 @@ class JarvisScheduler:
                 with open(self.storage_file, "r", encoding="utf-8") as f:
                     data = json.load(f)
                     
-                if isinstance(data, list):
-                    self._reminders = data
-                elif isinstance(data, dict):
-                    self._reminders = data.get("reminders", [])
-                else:
-                    self._reminders = []
+                raw_list = data if isinstance(data, list) else data.get("reminders", []) if isinstance(data, dict) else []
+                normalized: List[Dict[str, Any]] = []
+                for r in raw_list:
+                    if isinstance(r, dict):
+                        # Normalize status to lowercase string
+                        raw_status = str(r.get("status", "pending")).strip().lower()
+                        r["status"] = raw_status
+                        normalized.append(r)
+                self._reminders = normalized
                 logger.info(f"Loaded {len(self._reminders)} reminders from {self.storage_file.name}")
             except Exception as e:
                 logger.error(f"Failed to read reminders file ({e}). Creating backup.")
@@ -326,8 +329,10 @@ class JarvisScheduler:
             
             # Atomic replace
             os.replace(temp_file, self.storage_file)
+            return True
         except Exception as e:
             logger.error(f"Error persisting reminders to {self.storage_file}: {e}")
+            return False
 
     # =========================================================================
     # Public Reminder Management API
@@ -390,7 +395,9 @@ class JarvisScheduler:
 
         with self._lock:
             self._reminders.append(reminder_record)
-            self._save_reminders_locked()
+            if not self._save_reminders_locked():
+                self._reminders.remove(reminder_record)
+                raise IOError(f"Failed to persist reminder to {self.storage_file}")
 
         logger.info(
             f"Scheduled reminder [{reminder_id}]: '{reminder_record['text']}' "
@@ -440,7 +447,8 @@ class JarvisScheduler:
         with self._lock:
             if status is None or status.lower() == "all":
                 return [dict(r) for r in self._reminders]
-            return [dict(r) for r in self._reminders if r.get("status") == status]
+            target_status = status.lower()
+            return [dict(r) for r in self._reminders if str(r.get("status", "")).lower() == target_status]
 
     # =========================================================================
     # Callbacks & Alert Handling

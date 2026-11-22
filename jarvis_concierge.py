@@ -396,23 +396,28 @@ class JarvisConcierge:
         if JarvisConcierge.is_note_trigger(clean):
             return False
 
-        # Check regex patterns
+        # Check regex patterns for exact concluding matches
         if any(bool(re.search(pat, clean)) for pat in CONCLUDING_PATTERNS):
             return True
 
         # Check multi-word concluding tokens
         words = re.findall(r"\b\w+[\'\`ʼ]?\w*\b", clean)
-        if not words or len(words) > 7:
+        if not words or len(words) > 5:
+            return False
+
+        contrasts = {"lekin", "ammo", "biroq", "faqat", "emas", "yoq", "qachon"}
+        if any(c in words for c in contrasts):
             return False
 
         concluding_tokens = {
             "rahmat", "raxmat", "tashakkur", "tushundim", "tushunarli",
             "mayli", "xo'p", "xop", "yaxshi", "kelishdik", "bo'ldi", "boldi",
-            "xayr", "omon", "sog'", "sog", "salomat", "kutaman"
+            "xayr", "omon", "sog'", "sog", "salomat", "katta"
         }
+        fillers = {"aka", "uka", "opa", "singil", "sizga", "ham", "esa", "ha", "ok"}
 
-        matching = [w for w in words if any(ct in w for ct in concluding_tokens)]
-        return len(matching) > 0
+        # In pure concluding expressions, all words should be concluding tokens or courteous fillers
+        return any(w in concluding_tokens for w in words) and all(w in concluding_tokens or w in fillers for w in words)
 
     @staticmethod
     def is_note_trigger(text: str) -> bool:
@@ -713,12 +718,15 @@ class JarvisConcierge:
         if client and hasattr(client, "get_messages"):
             try:
                 chat_target = getattr(event, "chat_id", None) or sender
-                recent_msgs = await client.get_messages(chat_target, limit=6)
+                # Search up to 25 messages back to reliably cover the entire suppression window
+                recent_msgs = await client.get_messages(chat_target, limit=25)
                 user_recently_chatted = False
                 for m in recent_msgs:
-                    if getattr(m, "out", False) and getattr(m, "date", None):
+                    if getattr(m, "date", None):
                         m_ts = m.date.timestamp()
-                        if (now - m_ts) < USER_OUTGOING_SUPPRESSION_SECONDS:
+                        if (now - m_ts) > USER_OUTGOING_SUPPRESSION_SECONDS:
+                            break
+                        if getattr(m, "out", False):
                             user_recently_chatted = True
                             self.record_user_outgoing(sender_id, m_ts)
                             logger.info(
@@ -726,7 +734,7 @@ class JarvisConcierge:
                                 f"{sender_name} at {m.date} ({int(now - m_ts)}s ago < 1200s). Suppressing auto-reply."
                             )
                             break
-                if user_recently_chatted:
+                if user_recently_chatted or self.is_user_recently_active_in_chat(sender_id):
                     return False
             except Exception as e:
                 logger.debug(f"History outgoing check exception (ignored): {e}")

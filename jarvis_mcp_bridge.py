@@ -51,6 +51,7 @@ class MCPServerProcess:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
+                encoding="utf-8",
                 bufsize=1,
                 env=self.env
             )
@@ -165,9 +166,15 @@ class JarvisMCPBridge:
             })
             if init_res and "result" in init_res:
                 logger.info(f"Initialized MCP server '{name}'. Discovering tools...")
-                tools_res = srv.send_rpc("tools/list", {})
-                if tools_res and "result" in tools_res:
-                    tools = tools_res["result"].get("tools", [])
+                cursor = None
+                total_discovered = 0
+                while True:
+                    params = {"cursor": cursor} if cursor else {}
+                    tools_res = srv.send_rpc("tools/list", params)
+                    if not tools_res or "result" not in tools_res:
+                        break
+                    res_obj = tools_res["result"]
+                    tools = res_obj.get("tools", [])
                     for t in tools:
                         t_name = f"mcp_{name}_{t.get('name')}"
                         self.discovered_tools[t_name] = {
@@ -176,7 +183,11 @@ class JarvisMCPBridge:
                             "description": t.get("description", ""),
                             "input_schema": t.get("inputSchema", {})
                         }
-                    logger.info(f"Discovered {len(tools)} tools from MCP server '{name}'.")
+                        total_discovered += 1
+                    cursor = res_obj.get("nextCursor")
+                    if not cursor:
+                        break
+                logger.info(f"Discovered {total_discovered} tools from MCP server '{name}'.")
         except Exception as e:
             logger.error(f"Failed to initialize server '{name}': {e}")
 
@@ -203,13 +214,18 @@ class JarvisMCPBridge:
         if "error" in res:
             return {"success": False, "error": res["error"].get("message", "MCP execution error")}
 
-        content = res.get("result", {}).get("content", [])
+        result_obj = res.get("result", {})
+        is_error = result_obj.get("isError", False) if isinstance(result_obj, dict) else False
+
+        content = result_obj.get("content", []) if isinstance(result_obj, dict) else []
         text_outputs = []
         for c in content:
             if isinstance(c, dict) and c.get("type") == "text":
                 text_outputs.append(c.get("text", ""))
 
-        output_str = "\n".join(text_outputs) if text_outputs else str(res.get("result", {}))
+        output_str = "\n".join(text_outputs) if text_outputs else str(result_obj)
+        if is_error:
+            return {"success": False, "error": output_str, "result": output_str}
         return {"success": True, "result": output_str}
 
     def register_with_registry(self, registry: Any):
