@@ -99,18 +99,16 @@ class JarvisUserTelegram:
         Dispatches to shared persistent Telethon event loop if active.
         """
         if cls._shared_loop and cls._shared_loop.is_running():
+            current_loop = None
             try:
-                current_loop = None
-                try:
-                    current_loop = asyncio.get_running_loop()
-                except RuntimeError:
-                    pass
-                if current_loop != cls._shared_loop:
-                    future = asyncio.run_coroutine_threadsafe(coro, cls._shared_loop)
-                    return future.result(timeout=45)
-            except Exception as e:
-                logger.warning(f"Shared loop execution fallback: {e}")
+                current_loop = asyncio.get_running_loop()
+            except RuntimeError:
+                pass
+            if current_loop != cls._shared_loop:
+                future = asyncio.run_coroutine_threadsafe(coro, cls._shared_loop)
+                return future.result(timeout=45)
 
+        # Standalone execution when no shared persistent client loop is running
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:
@@ -497,6 +495,8 @@ class JarvisUserTelegram:
 
             md_lines.append(f"💡 <b>Monika Tahlili:</b> <i>{advice}</i>")
             markdown_text = "\n".join(md_lines)
+            if len(markdown_text) > 4000:
+                markdown_text = markdown_text[:3900] + "\n\n<i>...(Xabarlar ko'pligi sababli qisqartirildi)</i>"
 
             # --- BUILD CONCISE SPOKEN VOICE SUMMARY ---
             voice_parts = []
@@ -561,7 +561,10 @@ class JarvisUserTelegram:
         async def _run():
             async with cls.session_scope() as c:
                 target = target_name_or_username.strip()
-                clean_target = re.sub(r'(?:ga|ka|qa)$', '', target, flags=re.IGNORECASE).strip() or target
+                if target.startswith("@") or target.startswith("+") or (target.isdigit() and len(target) > 5):
+                    clean_target = target
+                else:
+                    clean_target = re.sub(r'(?:ga|ka|qa)$', '', target, flags=re.IGNORECASE).strip() or target
 
                 dest_entity = None
                 dest_name = clean_target
@@ -608,7 +611,10 @@ class JarvisUserTelegram:
         async def _run():
             async with cls.session_scope() as c:
                 target = target_name_or_username.strip()
-                clean_target = re.sub(r'(?:ga|ka|qa)$', '', target, flags=re.IGNORECASE).strip() or target
+                if target.startswith("@") or target.startswith("+") or (target.isdigit() and len(target) > 5):
+                    clean_target = target
+                else:
+                    clean_target = re.sub(r'(?:ga|ka|qa)$', '', target, flags=re.IGNORECASE).strip() or target
 
                 dest_entity = None
                 dest_name = clean_target
@@ -668,7 +674,10 @@ class JarvisUserTelegram:
         async def _run():
             async with cls.session_scope() as c:
                 target = target_name_or_username.strip()
-                clean_target = re.sub(r'(?:ga|ka|qa)$', '', target, flags=re.IGNORECASE).strip() or target
+                if target.startswith("@") or target.startswith("+") or (target.isdigit() and len(target) > 5):
+                    clean_target = target
+                else:
+                    clean_target = re.sub(r'(?:ga|ka|qa)$', '', target, flags=re.IGNORECASE).strip() or target
 
                 dest_entity = None
                 if clean_target.startswith("@") or clean_target.startswith("+") or (clean_target.isdigit() and len(clean_target) > 5):
@@ -691,8 +700,22 @@ class JarvisUserTelegram:
                 if not dest_entity:
                     return {"success": False, "error": f"Kontakt topilmadi: {clean_target}"}
 
-                await c.delete_messages(dest_entity, message_ids, revoke=revoke)
-                return {"success": True, "deleted_ids": message_ids}
+                # Scope deletion to the resolved target by validating message IDs in dest_entity
+                valid_ids = []
+                try:
+                    msgs = await c.get_messages(dest_entity, ids=message_ids)
+                    if msgs:
+                        if not isinstance(msgs, list):
+                            msgs = [msgs]
+                        valid_ids = [m.id for m in msgs if m is not None]
+                except Exception as ex:
+                    logger.warning(f"Failed verifying message IDs in chat: {ex}")
+
+                if not valid_ids:
+                    return {"success": False, "error": f"Ko'rsatilgan xabarlar ushbu chatda topilmadi: {clean_target}"}
+
+                await c.delete_messages(dest_entity, valid_ids, revoke=revoke)
+                return {"success": True, "deleted_ids": valid_ids}
 
         return cls._run_sync(_run())
 

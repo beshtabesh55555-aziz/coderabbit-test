@@ -152,6 +152,8 @@ class JarvisVision:
         # VideoCapture handle
         self.cap = None
         self.is_simulation_mode = force_simulation or not CV2_AVAILABLE
+        self._last_frame_is_fallback = False
+        self._motion_detector_initialized = False
         self.actual_camera_index = -1
 
         # Background subtractor & safe fallback frame buffer
@@ -268,6 +270,7 @@ class JarvisVision:
 
     def _init_motion_detector(self) -> None:
         """Initialize the BGR MOG2 background subtractor with shadow discrimination."""
+        self._motion_detector_initialized = True
         if CV2_AVAILABLE:
             try:
                 self.bg_subtractor = cv2.createBackgroundSubtractorMOG2(
@@ -278,7 +281,6 @@ class JarvisVision:
             except Exception as e:
                 logger.warning(f"Failed to create MOG2 subtractor: {e}")
                 self.bg_subtractor = None
-        self._prev_gray = None
 
     def read_frame(self) -> Tuple[bool, Optional[Any]]:
         """
@@ -291,6 +293,7 @@ class JarvisVision:
                     ret, frame = self.cap.read()
                     if ret and frame is not None and frame.size > 0:
                         self.last_frame = frame.copy()
+                        self._last_frame_is_fallback = False
                         return True, frame
                     else:
                         logger.warning("Camera read failed, returning fallback simulation frame.")
@@ -301,6 +304,7 @@ class JarvisVision:
             sim_frame = self._generate_simulation_frame()
             if sim_frame is not None:
                 self.last_frame = sim_frame.copy()
+                self._last_frame_is_fallback = True
                 return True, sim_frame
             return False, None
 
@@ -397,7 +401,7 @@ class JarvisVision:
             proc_h = int(h * (proc_w / w)) if w > 0 else 480
             small_frame = cv2.resize(frame, (proc_w, proc_h), interpolation=cv2.INTER_LINEAR)
 
-            if self.bg_subtractor is None:
+            if not self._motion_detector_initialized and self.bg_subtractor is None:
                 self._init_motion_detector()
 
             if self.bg_subtractor is not None:
@@ -489,26 +493,26 @@ class JarvisVision:
                 self.motion_start_time = now
                 logger.info("Motion started: Target entered camera field of view (rising edge).")
 
-                # Strictly suppress security callbacks (on_motion_detected) in simulation mode!
-                if not self.is_simulation_mode:
+                # Strictly suppress security callbacks (on_motion_detected) in simulation mode or fallback frames!
+                if not self.is_simulation_mode and not self._last_frame_is_fallback:
                     if (now - self.last_motion_alert_time) >= self.cooldown:
                         self.last_motion_alert_time = now
                         logger.info(f"Triggering motion alert (rising edge, cooldown {self.cooldown}s satisfied).")
-                        snapshot_path = self.capture_snapshot(annotated=True)
+                        snapshot_path = self.capture_snapshot(annotated=True, frame=annotated_frame)
                         if self.on_motion_detected:
                             try:
                                 self.on_motion_detected(annotated_frame, str(snapshot_path), bounding_boxes)
                             except Exception as e:
                                 logger.error(f"Error in on_motion_detected callback: {e}")
                 else:
-                    logger.debug("Motion detected in SIMULATION mode: security alert strictly suppressed.")
+                    logger.debug("Motion detected in SIMULATION/fallback mode: security alert strictly suppressed.")
             else:
                 # Sustained motion: check cooldown for recurring alert
-                if not self.is_simulation_mode:
+                if not self.is_simulation_mode and not self._last_frame_is_fallback:
                     if (now - self.last_motion_alert_time) >= self.cooldown:
                         self.last_motion_alert_time = now
                         logger.info(f"Triggering recurring motion alert (cooldown {self.cooldown}s satisfied).")
-                        snapshot_path = self.capture_snapshot(annotated=True)
+                        snapshot_path = self.capture_snapshot(annotated=True, frame=annotated_frame)
                         if self.on_motion_detected:
                             try:
                                 self.on_motion_detected(annotated_frame, str(snapshot_path), bounding_boxes)
@@ -591,6 +595,7 @@ class JarvisVision:
         filepath: Optional[str] = None,
         annotated: bool = False,
         return_bytes: bool = False,
+        frame: Optional[Any] = None,
     ) -> Optional[Any]:
         """
         Capture a clean or annotated snapshot and save to disk.
@@ -599,16 +604,19 @@ class JarvisVision:
         :param filepath: Optional explicit file path. If None, saves timestamped file to snapshots_dir.
         :param annotated: If True, saves annotated frame with detection boxes; else raw frame.
         :param return_bytes: If True, also returns the encoded image bytes (JPEG format).
+        :param frame: Optional explicit frame to save.
         :return: Path to saved file, or (filepath, bytes) if return_bytes=True.
         """
         with self.lock:
-            if annotated and self.last_annotated_frame is not None:
+            if frame is not None:
+                frame_to_save = frame
+            elif annotated and self.last_annotated_frame is not None:
                 frame_to_save = self.last_annotated_frame
             elif self.last_frame is not None:
                 frame_to_save = self.last_frame
             else:
-                ret, frame = self.read_frame()
-                frame_to_save = frame if ret else None
+                ret, frame_read = self.read_frame()
+                frame_to_save = frame_read if ret else None
 
         if frame_to_save is None:
             logger.error("Cannot capture snapshot: No frame available.")
@@ -660,16 +668,13 @@ class JarvisVision:
             except Exception as e:
                 logger.error(f"Failed to save PIL Image snapshot: {e}")
 
-        # Fallback text placeholder if nothing else works
         if not saved:
-            with open(target_path, "w", encoding="utf-8") as f:
-                f.write(f"Snapshot at {datetime.now().isoformat()}")
-            saved = True
+            logger.error(f"Failed to encode or write valid snapshot to {target_path}")
+            return (None, b"") if return_bytes else None
 
-        if saved:
-            logger.info(f"Snapshot saved: {target_path}")
-            # Prune snapshot directory to retain max 150 files
-            self._prune_snapshots(max_retained=150)
+        logger.info(f"Snapshot saved: {target_path}")
+        # Prune snapshot directory to retain max 150 files
+        self._prune_snapshots(max_retained=150)
 
         if return_bytes:
             return str(target_path), img_bytes
@@ -697,7 +702,10 @@ class JarvisVision:
             return msg
 
         # Save snapshot for upload
-        snap_path = self.capture_snapshot(filepath=str(self.snapshots_dir / f"gemini_query_{int(time.time())}.jpg"))
+        snap_path = self.capture_snapshot(
+            filepath=str(self.snapshots_dir / f"gemini_query_{int(time.time())}.jpg"),
+            frame=frame
+        )
         if not snap_path or not Path(snap_path).exists():
             return "[JARVIS Vision] Tasvir saqlab bo'lmadi."
 
@@ -784,7 +792,7 @@ class JarvisVision:
         :param callback: Function invoked on every processed frame: callback(annotated_frame, motion_detected, boxes)
         :return: Monitoring thread object
         """
-        if self.is_monitoring and self._monitor_thread and self._monitor_thread.is_alive():
+        if self._monitor_thread and self._monitor_thread.is_alive():
             logger.warning("Monitoring stream already running.")
             return self._monitor_thread
 
@@ -837,13 +845,11 @@ class JarvisVision:
 
     def stop_stream(self, timeout: float = 2.0) -> None:
         """Stop background monitoring stream gracefully."""
-        if not self.is_monitoring:
-            return
         logger.info("Stopping vision stream...")
         self._stop_event.set()
         if self._monitor_thread and self._monitor_thread.is_alive():
             self._monitor_thread.join(timeout=timeout)
-        self.is_monitoring = False
+        self.is_monitoring = bool(self._monitor_thread and self._monitor_thread.is_alive())
 
     def set_motion_callback(self, callback: Callable) -> None:
         """Register a callback when motion alert triggers."""

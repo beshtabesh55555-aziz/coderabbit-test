@@ -144,23 +144,34 @@ class JarvisVoice:
         self._should_stop_speech = False
         clean_text = text.strip()
         if wait:
-            self._speak_now(clean_text)
+            done_event = threading.Event()
+            self._speech_queue.put((clean_text, done_event))
+            done_event.wait()
         else:
             self._speech_queue.put(clean_text)
 
     def _speech_worker(self):
-        """Background worker consuming speech queue."""
+        """Background worker consuming speech queue in FIFO order."""
         while True:
             try:
-                text = self._speech_queue.get()
-                if text is None:
+                item = self._speech_queue.get()
+                if item is None:
                     break
-                if not self._should_stop_speech:
-                    self._is_speaking = True
-                    self._speak_now(text)
-                    self._last_speech_end_time = time.time()
-                    self._is_speaking = False
-                self._speech_queue.task_done()
+                done_event = None
+                if isinstance(item, tuple):
+                    text, done_event = item
+                else:
+                    text = item
+                try:
+                    if not self._should_stop_speech:
+                        self._is_speaking = True
+                        self._speak_now(text)
+                        self._last_speech_end_time = time.time()
+                        self._is_speaking = False
+                finally:
+                    if done_event is not None:
+                        done_event.set()
+                    self._speech_queue.task_done()
             except Exception as e:
                 logger.error(f"Speech worker error: {e}")
                 self._last_speech_end_time = time.time()
@@ -204,13 +215,15 @@ class JarvisVoice:
                     cache_file = AUDIO_CACHE_DIR / f"tts_{int(time.time() * 1000)}.mp3"
                     success = asyncio.run(self._generate_edge_tts(cleaned_text, str(cache_file)))
                     if success and cache_file.exists():
+                        played = False
                         if not self._should_stop_speech:
-                            self._play_audio_file(str(cache_file))
+                            played = self._play_audio_file(str(cache_file))
                         try:
                             cache_file.unlink()
                         except Exception:
                             pass
-                        return
+                        if played:
+                            return
                 except Exception as e:
                     logger.warning(f"Edge-TTS failed: {e}")
 
@@ -230,12 +243,12 @@ class JarvisVoice:
             logger.warning(f"edge_tts generation error: {e}")
             return False
 
-    def _play_audio_file(self, file_path: str):
+    def _play_audio_file(self, file_path: str) -> bool:
         """Play audio file with live interruption support."""
         if self._should_stop_speech:
-            return
+            return False
 
-        abs_path = os.path.abspath(file_path).replace("'", "''")
+        abs_path = str(Path(file_path).resolve())
         base_dir = Path(__file__).resolve().parent
         ps1_script = base_dir / "play_audio.ps1"
         cmd = [
@@ -255,8 +268,57 @@ class JarvisVoice:
                 stderr=subprocess.DEVNULL,
                 creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
             )
-            # Poll process until finished or interrupted
+            # Estimate reasonable max playback duration based on file size
+            try:
+                file_size = Path(file_path).stat().st_size
+                max_timeout = max(30.0, (file_size / 4000.0) + 15.0)
+            except Exception:
+                max_timeout = 120.0
+
             start_t = time.time()
+            interrupted = False
+            while self._active_player_process and self._active_player_process.poll() is None:
+                if self._should_stop_speech:
+                    interrupted = True
+                    try:
+                        self._active_player_process.terminate()
+                        self._active_player_process.kill()
+                    except Exception:
+                        pass
+                    break
+                time.sleep(0.06)
+                if (time.time() - start_t) > max_timeout:
+                    try:
+                        self._active_player_process.kill()
+                    except Exception:
+                        pass
+                    break
+            success = (not interrupted and self._active_player_process is not None and self._active_player_process.poll() == 0)
+            self._active_player_process = None
+            return success
+        except Exception as e:
+            logger.warning(f"Audio playback error: {e}")
+            self._active_player_process = None
+            return False
+
+    def _speak_sapi(self, text: str) -> bool:
+        """Speak text through Windows SAPI using PowerShell with interruption support."""
+        if self._should_stop_speech:
+            return False
+        safe_text = text.replace("'", "''").replace("\n", " ")
+        cmd = [
+            "powershell",
+            "-NoProfile",
+            "-Command",
+            f"Add-Type -AssemblyName System.Speech; (New-Object System.Speech.Synthesis.SpeechSynthesizer).Speak('{safe_text}')"
+        ]
+        try:
+            self._active_player_process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+            )
             while self._active_player_process and self._active_player_process.poll() is None:
                 if self._should_stop_speech:
                     try:
@@ -266,31 +328,14 @@ class JarvisVoice:
                         pass
                     break
                 time.sleep(0.06)
-                if (time.time() - start_t) > 30:
-                    try:
-                        self._active_player_process.kill()
-                    except Exception:
-                        pass
-                    break
             self._active_player_process = None
-        except Exception as e:
-            logger.warning(f"Audio playback error: {e}")
-
-    def _speak_sapi(self, text: str):
-        """Speak text through Windows SAPI using PowerShell."""
-        safe_text = text.replace("'", "''").replace("\n", " ")
-        cmd = [
-            "powershell",
-            "-NoProfile",
-            "-Command",
-            f"Add-Type -AssemblyName System.Speech; (New-Object System.Speech.Synthesis.SpeechSynthesizer).Speak('{safe_text}')"
-        ]
-        try:
-            subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=20)
+            return True
         except Exception as e:
             logger.error(f"SAPI TTS error: {e}")
+            self._active_player_process = None
+            return False
 
-    def _record_audio(self, listen_timeout: float = 3.5, max_phrase_duration: float = 8.0, sample_rate: int = 16000) -> Optional[sr.AudioData]:
+    def _record_audio(self, listen_timeout: float = 3.5, max_phrase_duration: float = 8.0, sample_rate: int = 16000) -> Optional[Any]:
         """
         Record audio from hardware microphone via sounddevice with Voice Activity Detection (VAD).
         - Listens in 100ms frames.

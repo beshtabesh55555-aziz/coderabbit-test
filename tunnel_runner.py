@@ -35,12 +35,13 @@ try:
     import psutil
     my_pid = os.getpid()
     my_ppid = os.getppid()
+    my_script = str(Path(__file__).resolve()).lower()
     for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
         if proc.pid == my_pid or proc.pid == my_ppid:
             continue
         try:
-            cmdline = " ".join(proc.info.get('cmdline') or []).lower()
-            if "tunnel_runner.py" in cmdline:
+            cmdline_parts = [str(Path(arg).resolve()).lower() if Path(arg).exists() else arg.lower() for arg in (proc.info.get('cmdline') or [])]
+            if my_script in cmdline_parts:
                 logger.warning(f"Terminating duplicate tunnel_runner process (PID {proc.pid})...")
                 proc.kill()
         except (psutil.NoSuchProcess, psutil.AccessDenied):
@@ -49,7 +50,7 @@ except Exception:
     pass
 
 
-def update_telegram_menu_button(app_url: str):
+def update_telegram_menu_button(app_url: str) -> bool:
     """Set Telegram Chat Menu Button to native Bot Commands menu."""
     menu_btn = {
         "type": "commands"
@@ -68,18 +69,21 @@ def update_telegram_menu_button(app_url: str):
         logger.info(f"Reset default menu button to commands: {res1.get('ok')}")
 
         # Admin menu button
-        data_admin = json.dumps({"chat_id": ADMIN_CHAT_ID, "menu_button": menu_btn}).encode("utf-8")
-        req2 = urllib.request.Request(
-            f"https://api.telegram.org/bot{BOT_TOKEN}/setChatMenuButton",
-            data=data_admin,
-            headers={"Content-Type": "application/json"}
-        )
-        with urllib.request.urlopen(req2, timeout=10) as r:
-            res2 = json.loads(r.read().decode("utf-8"))
-        logger.info(f"Reset admin menu button for {ADMIN_CHAT_ID} to commands: {res2.get('ok')}")
+        if ADMIN_CHAT_ID:
+            data_admin = json.dumps({"chat_id": ADMIN_CHAT_ID, "menu_button": menu_btn}).encode("utf-8")
+            req2 = urllib.request.Request(
+                f"https://api.telegram.org/bot{BOT_TOKEN}/setChatMenuButton",
+                data=data_admin,
+                headers={"Content-Type": "application/json"}
+            )
+            with urllib.request.urlopen(req2, timeout=10) as r:
+                res2 = json.loads(r.read().decode("utf-8"))
+            logger.info(f"Reset admin menu button for {ADMIN_CHAT_ID} to commands: {res2.get('ok')}")
 
+        return bool(res1.get("ok"))
     except Exception as e:
         logger.error(f"Failed to update Telegram menu button: {e}")
+        return False
 
 
 def run_tunnel_loop():
@@ -92,8 +96,10 @@ def run_tunnel_loop():
     cf_url_pattern = re.compile(r"https://[a-zA-Z0-9\-]+\.trycloudflare\.com")
     lhr_url_pattern = re.compile(r"https://[a-zA-Z0-9\.\-]+\.lhr\.life")
     current_url = ""
+    menu_updated = False
 
     while True:
+        proc = None
         if use_cloudflare:
             cmd = [str(cf_bin), "tunnel", "--url", "http://127.0.0.1:8088"]
             logger.info("Spawning Cloudflare Quick Tunnel (trycloudflare.com) ...")
@@ -128,16 +134,25 @@ def run_tunnel_loop():
                 match = target_pattern.search(line_str)
                 if match:
                     detected_url = match.group(0)
-                    if detected_url != current_url:
+                    if detected_url != current_url or not menu_updated:
                         current_url = detected_url
                         logger.info(f"🔥 Active HTTPS Tunnel detected: {current_url}")
                         URL_FILE.write_text(current_url, encoding="utf-8")
-                        update_telegram_menu_button(current_url)
+                        menu_updated = update_telegram_menu_button(current_url)
 
             proc.wait()
             logger.warning(f"Tunnel process exited with code {proc.returncode}. Reconnecting in 3 seconds...")
+            if use_cloudflare and proc.returncode != 0:
+                logger.warning("Cloudflare tunnel failed. Switching to OpenSSH fallback...")
+                use_cloudflare = False
         except Exception as e:
             logger.error(f"Error in tunnel loop: {e}")
+            if proc and proc.poll() is None:
+                try:
+                    proc.terminate()
+                    proc.kill()
+                except Exception:
+                    pass
             if use_cloudflare:
                 logger.warning("Falling back to OpenSSH localhost.run...")
                 use_cloudflare = False

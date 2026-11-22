@@ -15,6 +15,8 @@ Security & Hardening Features:
 
 import os
 import sys
+import re
+import json
 import time
 import html
 import queue
@@ -23,7 +25,7 @@ import threading
 import collections
 import requests
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 
 try:
     import config
@@ -167,6 +169,22 @@ class JarvisTelegram:
                 if item is None:
                     break
                 photo_path, caption, target_id = item
+                
+                # Recheck armed state and system lock state before starting upload
+                if not self.is_armed():
+                    logger.info("Alert worker: Security mode is no longer ARMED. Dropping queued alert.")
+                    self._alert_queue.task_done()
+                    continue
+
+                if self.system and hasattr(self.system, "is_workstation_locked"):
+                    try:
+                        if not self.system.is_workstation_locked() and self.security_state != "ARMED":
+                            logger.info("Alert worker: Workstation is active/unlocked. Dropping queued alert.")
+                            self._alert_queue.task_done()
+                            continue
+                    except Exception as lk_err:
+                        logger.warning(f"Alert worker: could not verify lock state: {lk_err}")
+
                 self._send_photo_direct(photo_path, caption, target_id)
                 self._alert_queue.task_done()
             except Exception as e:
@@ -858,15 +876,25 @@ class JarvisTelegram:
             logger.info(f"Conversational message from admin ({chat_id}): '{raw_text}'")
             def _handle_chat():
                 try:
+                    reply = ""
+                    clarification_sent = False
+                    media_sent = False
                     if self.core and hasattr(self.core, "process_command"):
-                        # Silent on PC speakers: only respond via Telegram text
-                        raw_reply = self.core.process_command(raw_text, speak_output=False, user_id=chat_id)
-                        reply = str(raw_reply) if raw_reply is not None else ""
+                        # Synchronize delivery state per command execution
+                        cmd_lock = getattr(self.core, "_command_lock", None) or threading.Lock()
+                        with cmd_lock:
+                            setattr(self.core, "_clarification_dispatched_via_tg", False)
+                            setattr(self.core, "_media_dispatched_via_tg", False)
+                            raw_reply = self.core.process_command(raw_text, speak_output=False, user_id=chat_id)
+                            reply = str(raw_reply) if raw_reply is not None else ""
+                            clarification_sent = getattr(self.core, "_clarification_dispatched_via_tg", False)
+                            media_sent = getattr(self.core, "_media_dispatched_via_tg", False)
                     else:
                         reply = "Salom! Monika tizimi faol, lekin tahlil moduli ulanmagan."
+
                     if reply:
                         # Avoid duplicate message if clarification or direct media was already dispatched via Telegram
-                        if not getattr(self.core, "_clarification_dispatched_via_tg", False) and not getattr(self.core, "_media_dispatched_via_tg", False):
+                        if not clarification_sent and not media_sent:
                             self.send_message(f"🤖 <b>Monika:</b>\n{reply}", chat_id=chat_id)
                 except Exception as err:
                     logger.error(f"Telegram chat error: {err}")
