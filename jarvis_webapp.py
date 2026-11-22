@@ -1278,10 +1278,15 @@ async def handle_screen_lock(request: web.Request) -> web.Response:
     loop = asyncio.get_running_loop()
     res = await loop.run_in_executor(None, system.lock_workstation)
     success = res.get("success", False) if isinstance(res, dict) else bool(res)
-    logger.info(f"Workstation locked via /api/screen/lock request: success={success}")
+    # Read observed lock state directly from system status rather than assuming from operation result
+    status_info = await loop.run_in_executor(None, system.get_lock_status)
+    observed_locked = status_info.get("is_locked") if isinstance(status_info, dict) else None
+    if observed_locked is None:
+        observed_locked = True if success else None
+    logger.info(f"Workstation locked via /api/screen/lock request: success={success}, observed_locked={observed_locked}")
     return web.json_response({
         "status": "success" if success else "failed",
-        "is_locked": True if success else False,
+        "is_locked": observed_locked,
         "message": res.get("message", "Screen locked") if isinstance(res, dict) else str(res),
     })
 
@@ -1338,9 +1343,13 @@ async def handle_action_lock(request: web.Request) -> web.Response:
     loop = asyncio.get_running_loop()
     res = await loop.run_in_executor(None, system.lock_workstation)
     success = res.get("success", False) if isinstance(res, dict) else bool(res)
+    status_info = await loop.run_in_executor(None, system.get_lock_status)
+    observed_locked = status_info.get("is_locked") if isinstance(status_info, dict) else None
+    if observed_locked is None:
+        observed_locked = True if success else None
     return web.json_response({
         "status": "success" if success else "failed",
-        "is_locked": True if success else False,
+        "is_locked": observed_locked,
         "message": res.get("message", "Kompyuter ekrani qulflandi.") if isinstance(res, dict) else str(res)
     })
 
@@ -1644,9 +1653,14 @@ async def handle_lock(request: web.Request) -> web.Response:
     loop = asyncio.get_running_loop()
     res = await loop.run_in_executor(None, system.lock_workstation)
     success = res.get("success", False) if isinstance(res, dict) else bool(res)
-    logger.info(f"Workstation locked via WebApp request: success={success}")
+    status_info = await loop.run_in_executor(None, system.get_lock_status)
+    observed_locked = status_info.get("is_locked") if isinstance(status_info, dict) else None
+    if observed_locked is None:
+        observed_locked = True if success else None
+    logger.info(f"Workstation locked via WebApp request: success={success}, observed_locked={observed_locked}")
     return web.json_response({
         "status": "success" if success else "failed",
+        "is_locked": observed_locked,
         "result": res,
         "message": res.get("message", "Kompyuter ekrani muvaffaqiyatli qulflandi.") if isinstance(res, dict) else "Kompyuter ekrani muvaffaqiyatli qulflandi."
     })

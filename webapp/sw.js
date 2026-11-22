@@ -143,23 +143,33 @@ self.addEventListener('fetch', (event) => {
   }
 
   // 4. Static Assets (Icons, Images, Scripts, Styles) -> Stale-While-Revalidate
+  const revalidatePromise = fetch(request)
+    .then((networkResponse) => {
+      if (networkResponse && networkResponse.status === 200) {
+        const clone = networkResponse.clone();
+        return caches.open(CACHE_NAME)
+          .then((cache) => cache.put(request, clone))
+          .then(() => networkResponse)
+          .catch((err) => {
+            console.warn('[SW] Cache write failed:', err);
+            return networkResponse;
+          });
+      }
+      return networkResponse;
+    })
+    .catch((err) => {
+      console.warn('[SW] Background revalidation fetch failed:', err);
+      return null;
+    });
+
+  event.waitUntil(revalidatePromise);
+
   event.respondWith(
     caches.match(request).then((cachedResponse) => {
-      const fetchPromise = fetch(request)
-        .then((networkResponse) => {
-          if (networkResponse && networkResponse.status === 200) {
-            const clone = networkResponse.clone();
-            event.waitUntil(
-              caches.open(CACHE_NAME)
-                .then((cache) => cache.put(request, clone))
-                .catch((err) => console.warn('[SW] Cache write failed:', err))
-            );
-          }
-          return networkResponse;
-        })
-        .catch(() => cachedResponse);
-
-      return cachedResponse || fetchPromise;
+      return cachedResponse || revalidatePromise.then((networkResponse) => {
+        if (networkResponse) return networkResponse;
+        return caches.match(request);
+      });
     })
   );
 });
