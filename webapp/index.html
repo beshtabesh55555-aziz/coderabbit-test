@@ -723,7 +723,7 @@
           </div>
         </button>
 
-        <button onclick="toggleMasterMute(); closeSystemMenuSheet();" class="p-2.5 rounded-2xl bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] text-left transition active:scale-95 flex items-center gap-2.5">
+        <button onclick="toggleMuteState(); closeSystemMenuSheet();" class="p-2.5 rounded-2xl bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] text-left transition active:scale-95 flex items-center gap-2.5">
           <div class="w-8 h-8 rounded-xl bg-violet-500/20 text-violet-400 flex items-center justify-center text-sm">🔇</div>
           <div>
             <p class="font-medium text-white text-[11px]">Ovozni o'chirish</p>
@@ -914,16 +914,18 @@
         const stored = localStorage.getItem('monika_api_key');
         if (stored) return stored;
       } catch (e) {}
-      return 'monika-secret-key-2026';
+      return '';
     }
 
     async function apiRequest(endpoint, method = 'GET', body = null, timeoutMs = 28000) {
       const apiKey = getAuthKey();
       const headers = {
-        'X-API-Key': apiKey,
-        'Authorization': `Bearer ${apiKey}`,
         'Content-Type': 'application/json'
       };
+      if (apiKey) {
+        headers['X-API-Key'] = apiKey;
+        headers['Authorization'] = `Bearer ${apiKey}`;
+      }
       const options = { method, headers };
       if (body && method !== 'GET') {
         options.body = JSON.stringify(body);
@@ -933,19 +935,19 @@
       options.signal = controller.signal;
       try {
         const res = await fetch(endpoint, options);
-        clearTimeout(timer);
         if (res.status === 401) {
           console.warn('Authentication required.');
           return { error: 'Avtorizatsiya talab etiladi', status: 'unauthorized' };
         }
         return await res.json();
       } catch (err) {
-        clearTimeout(timer);
         if (err.name === 'AbortError') {
           return { error: 'So\'rov vaqti tugadi (timeout). Server band yoki tarmoq muammosi.', status: 'timeout' };
         }
         console.error(`API request error on ${endpoint}:`, err);
         return { error: err.message, status: 'error' };
+      } finally {
+        clearTimeout(timer);
       }
     }
 
@@ -999,10 +1001,12 @@
     // -------------------------------------------------------------------------
     let isWorkstationLocked = false;
     let isMasterMuted = false;
+    let lastActionTimestamp = 0;
 
     // Trigger Screen Lock
     async function executeScreenLock() {
       triggerHaptic('impact', 'medium');
+      lastActionTimestamp = Date.now();
       showToast("Kompyuter ekrani bloklanmoqda...", "info");
 
       // Optimistically update badge
@@ -1044,6 +1048,7 @@
     // Trigger Screen Unlock via PIN
     async function executeScreenUnlock() {
       triggerHaptic('impact', 'medium');
+      lastActionTimestamp = Date.now();
       const input = document.getElementById('pin-input-field');
       const btn = document.getElementById('btn-submit-unlock');
       const pin = input ? input.value.trim() : "1234";
@@ -1216,11 +1221,14 @@
       return (str || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, '\\n').replace(/\r/g, '');
     }
 
+    let currentHistorySeq = 0;
+
     async function handleChatSubmit(e) {
       if (e) e.preventDefault();
       const msg = chatInput.value.trim();
       if (!msg) return;
 
+      currentHistorySeq++;
       triggerHaptic('impact', 'light');
       appendMessage('user', msg);
       chatInput.value = '';
@@ -1251,7 +1259,9 @@
     }
 
     async function loadChatHistory() {
+      const seq = ++currentHistorySeq;
       const res = await apiRequest('/api/chat/history?limit=25', 'GET');
+      if (seq !== currentHistorySeq) return;
       if (res && res.messages && res.messages.length > 0) {
         chatMessagesContainer.innerHTML = '';
         res.messages.forEach(m => {
@@ -1263,6 +1273,7 @@
     async function clearChatHistory() {
       if (confirm("Chat tarixini tozalashni xohlaysizmi?")) {
         triggerHaptic('impact', 'medium');
+        currentHistorySeq++;
         await apiRequest('/api/chat/clear', 'POST', {});
         chatMessagesContainer.innerHTML = '';
         appendMessage('assistant', "Yangi suhbat boshlandi. Qanday buyrug'ingiz bor?");
@@ -1397,8 +1408,12 @@
         }
       }
 
+      const reqTimestamp = Date.now();
       const data = await apiRequest('/api/status', 'GET');
       if (!data || data.error) return;
+
+      // Ignore poll response if user performed an explicit lock/unlock action while request was in-flight
+      if (reqTimestamp < lastActionTimestamp) return;
 
       // Update Screen Lock State
       updateLockStatusUI(Boolean(data.is_locked));
@@ -1410,10 +1425,12 @@
       }
 
       // Telemetry Meters
-      const cpu = data.cpu_percent || 0;
-      const ram = data.ram_percent || 0;
-      const disk = data.disk_free_gb || 0;
-      const battery = data.battery_percent || '--';
+      const cpu = data.cpu_percent != null ? data.cpu_percent : 0;
+      const ram = data.ram_percent != null ? data.ram_percent : 0;
+      const diskGb = data.disk_free_gb != null ? data.disk_free_gb : 0;
+      const diskPercent = data.disk_percent != null ? data.disk_percent : 0;
+      const hasBattery = data.battery_percent != null && data.battery_percent !== undefined;
+      const battery = hasBattery ? data.battery_percent : '--';
 
       const cpuEl = document.getElementById('dash-cpu');
       const ramEl = document.getElementById('dash-ram');
@@ -1424,8 +1441,8 @@
 
       if (cpuEl) cpuEl.textContent = `${cpu}%`;
       if (ramEl) ramEl.textContent = `${ram}%`;
-      if (diskEl) diskEl.textContent = `${disk} GB`;
-      if (batEl) batEl.textContent = `${battery}%`;
+      if (diskEl) diskEl.textContent = `${diskGb} GB`;
+      if (batEl) batEl.textContent = hasBattery ? `${battery}%` : '--';
       if (uptimeEl) uptimeEl.textContent = `Uptime: ${data.uptime_formatted || '--'}`;
       if (windowEl) windowEl.textContent = data.active_window || "Ish stoli";
 
@@ -1437,7 +1454,10 @@
 
       if (cpuBar) cpuBar.style.width = `${Math.min(100, Math.max(0, cpu))}%`;
       if (ramBar) ramBar.style.width = `${Math.min(100, Math.max(0, ram))}%`;
-      if (batBar && typeof battery === 'number') batBar.style.width = `${Math.min(100, Math.max(0, battery))}%`;
+      if (diskBar) diskBar.style.width = `${Math.min(100, Math.max(0, diskPercent))}%`;
+      if (batBar) {
+        batBar.style.width = hasBattery ? `${Math.min(100, Math.max(0, Number(battery)))}%` : '0%';
+      }
 
       // Master Volume & Mute State
       isMasterMuted = Boolean(data.is_muted);
@@ -1470,8 +1490,12 @@
     // Send Keyboard Shortcut
     async function sendKey(key) {
       triggerHaptic('impact', 'light');
-      await apiRequest('/api/action/key', 'POST', { key });
-      showToast(`Tugma yuborildi: ${key}`, "info");
+      const res = await apiRequest('/api/action/key', 'POST', { key });
+      if (res && res.status === 'success') {
+        showToast(`Tugma yuborildi: ${key}`, "info");
+      } else {
+        showToast(res?.message || res?.error || `Tugma yuborishda xatolik: ${key}`, "error");
+      }
     }
 
     // Speak Text on PC Speaker
@@ -1480,9 +1504,13 @@
       const val = inp ? inp.value.trim() : '';
       if (!val) return;
       triggerHaptic('impact', 'light');
-      await apiRequest('/api/say', 'POST', { text: val });
-      showToast("Matn gapirildi", "success");
-      inp.value = '';
+      const res = await apiRequest('/api/say', 'POST', { text: val });
+      if (res && res.status === 'success') {
+        showToast("Matn gapirildi", "success");
+        if (inp) inp.value = '';
+      } else {
+        showToast(res?.message || res?.error || "Matnni gapirishda xatolik yuz berdi", "error");
+      }
     }
 
     // -------------------------------------------------------------------------
@@ -1755,12 +1783,19 @@
         if ('serviceWorker' in navigator) {
           const registrations = await navigator.serviceWorker.getRegistrations();
           for (let reg of registrations) {
-            await reg.unregister();
+            const scriptURL = reg.active?.scriptURL || reg.installing?.scriptURL || reg.waiting?.scriptURL || '';
+            if (scriptURL.includes('sw.js') || reg.scope.includes('/')) {
+              await reg.unregister();
+            }
           }
         }
         if ('caches' in window) {
           const cacheKeys = await caches.keys();
-          await Promise.all(cacheKeys.map(k => caches.delete(k)));
+          await Promise.all(
+            cacheKeys
+              .filter(k => k.startsWith('monika-'))
+              .map(k => caches.delete(k))
+          );
         }
         sessionStorage.clear();
         setTimeout(() => {
@@ -1801,7 +1836,14 @@
     async function requestWakeLock() {
       try {
         if ('wakeLock' in navigator && !wakeLockSentinel) {
-          wakeLockSentinel = await navigator.wakeLock.request('screen');
+          const sentinel = await navigator.wakeLock.request('screen');
+          // If modal was closed while requesting wake lock, release sentinel immediately
+          const modal = document.getElementById('surveillance-modal');
+          if (modal && modal.classList.contains('hidden')) {
+            await sentinel.release();
+            return;
+          }
+          wakeLockSentinel = sentinel;
           wakeLockSentinel.addEventListener('release', () => { wakeLockSentinel = null; });
         }
       } catch (err) {}
@@ -1824,6 +1866,11 @@
       refreshData();
       loadChatHistory();
       refreshConciergeInbox();
+
+      // PWA shortcut routing via URL hash
+      if (window.location.hash === '#vision') {
+        openSurveillanceModal('camera');
+      }
     }
 
     if (document.readyState === 'loading') {

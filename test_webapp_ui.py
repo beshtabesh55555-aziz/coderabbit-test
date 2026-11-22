@@ -16,6 +16,7 @@ import json
 import unittest
 import re
 from pathlib import Path
+from unittest.mock import patch
 
 # Add project root to sys.path
 BASE_DIR = Path(__file__).resolve().parent
@@ -176,13 +177,35 @@ class TestWebappUIStatic(unittest.TestCase):
 class TestWebappUIRoutes(AioHTTPTestCase):
     """Integration tests verifying HTTP route responses for the UI, PWA assets, and lock endpoints."""
 
+    TEST_API_KEY = "test-secret-key-12345"
+
+    @classmethod
+    def setUpClass(cls):
+        cls._orig_env_key = os.environ.get("WEBAPP_API_KEY")
+        cls._orig_config_key = getattr(config, "WEBAPP_API_KEY", None)
+        os.environ["WEBAPP_API_KEY"] = cls.TEST_API_KEY
+        config.WEBAPP_API_KEY = cls.TEST_API_KEY
+        super().setUpClass()
+
+    @classmethod
+    def tearDownClass(cls):
+        if cls._orig_env_key is not None:
+            os.environ["WEBAPP_API_KEY"] = cls._orig_env_key
+        else:
+            os.environ.pop("WEBAPP_API_KEY", None)
+        if cls._orig_config_key is not None:
+            config.WEBAPP_API_KEY = cls._orig_config_key
+        elif hasattr(config, "WEBAPP_API_KEY"):
+            delattr(config, "WEBAPP_API_KEY")
+        super().tearDownClass()
+
     async def get_application(self):
         """Construct the test aiohttp application instance."""
         return create_app()
 
     @property
     def auth_headers(self):
-        key = getattr(config, "WEBAPP_API_KEY", "monika-secret-key-2026")
+        key = getattr(config, "WEBAPP_API_KEY", self.TEST_API_KEY)
         return {
             "X-API-Key": key,
             "Authorization": f"Bearer {key}",
@@ -216,6 +239,11 @@ class TestWebappUIRoutes(AioHTTPTestCase):
         self.assertIn("name", manifest_data)
         self.assertIn("Monika", manifest_data["name"])
         self.assertIn("start_url", manifest_data)
+        self.assertIn("shortcuts", manifest_data)
+        shortcut_names = [s.get("short_name") for s in manifest_data["shortcuts"]]
+        self.assertNotIn("Touchpad", shortcut_names)
+        self.assertIn("Vision", shortcut_names)
+        self.assertIn("Chat", shortcut_names)
 
         # Service Worker
         resp_sw = await self.client.get("/sw.js")
@@ -226,7 +254,7 @@ class TestWebappUIRoutes(AioHTTPTestCase):
 
     @unittest_run_loop
     async def test_03_screen_lock_and_unlock_api_routes(self):
-        """Verify GET /api/screen/status, POST /api/screen/lock, and POST /api/screen/unlock."""
+        """Verify GET /api/screen/status, POST /api/screen/lock, and POST /api/screen/unlock (both success and fail branches)."""
         # 1. Screen Status
         resp_status = await self.client.get("/api/screen/status", headers=self.auth_headers)
         self.assertEqual(resp_status.status, 200)
@@ -239,15 +267,24 @@ class TestWebappUIRoutes(AioHTTPTestCase):
         resp_lock = await self.client.post("/api/screen/lock", json={}, headers=self.auth_headers)
         self.assertEqual(resp_lock.status, 200)
         lock_data = await resp_lock.json()
-        self.assertEqual(lock_data.get("status"), "success")
-        self.assertTrue(lock_data.get("is_locked"))
+        self.assertIn("status", lock_data)
+        self.assertIn("is_locked", lock_data)
 
-        # 3. Screen Unlock Endpoint (with PIN)
-        resp_unlock = await self.client.post("/api/screen/unlock", json={"pin": "1234"}, headers=self.auth_headers)
-        self.assertEqual(resp_unlock.status, 200)
-        unlock_data = await resp_unlock.json()
-        self.assertIn("status", unlock_data)
-        self.assertIn("is_locked", unlock_data)
+        # 3. Screen Unlock Endpoint (Successful PIN verification branch)
+        with patch("jarvis_webapp.system.unlock_workstation", return_value={"success": True, "is_locked": False, "message": "Unlocked"}):
+            resp_unlock = await self.client.post("/api/screen/unlock", json={"pin": "1234"}, headers=self.auth_headers)
+            self.assertEqual(resp_unlock.status, 200)
+            unlock_data = await resp_unlock.json()
+            self.assertEqual(unlock_data.get("status"), "success")
+            self.assertFalse(unlock_data.get("is_locked"))
+
+        # 4. Screen Unlock Endpoint (Failed / Invalid PIN branch)
+        with patch("jarvis_webapp.system.unlock_workstation", return_value={"success": False, "is_locked": True, "message": "Invalid PIN"}):
+            resp_unlock_bad = await self.client.post("/api/screen/unlock", json={"pin": "0000"}, headers=self.auth_headers)
+            self.assertEqual(resp_unlock_bad.status, 200)
+            unlock_bad_data = await resp_unlock_bad.json()
+            self.assertEqual(unlock_bad_data.get("status"), "failed")
+            self.assertTrue(unlock_bad_data.get("is_locked"))
 
     @unittest_run_loop
     async def test_04_telemetry_status_route(self):

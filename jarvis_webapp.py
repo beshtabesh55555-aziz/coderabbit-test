@@ -571,16 +571,14 @@ async def auth_middleware(request: web.Request, handler):
     is_sensitive = any(path.startswith(prefix) for prefix in SENSITIVE_PREFIXES)
 
     if is_sensitive:
-        expected_key = getattr(config, "WEBAPP_API_KEY", "") or os.environ.get("WEBAPP_API_KEY", "")
-        if not expected_key:
-            expected_key = "monika-secret-key-2026"
+        expected_key = (getattr(config, "WEBAPP_API_KEY", "") or os.environ.get("WEBAPP_API_KEY", "")).strip()
 
-        # Fail-closed check: Empty or dangerously weak key must immediately reject all requests
-        if not expected_key or len(expected_key.strip()) < 8:
+        # Fail-closed check: Unconfigured or dangerously weak key must immediately reject all requests
+        if not expected_key or len(expected_key) < 8:
             logger.error(f"Security halt: WEBAPP_API_KEY is not properly set (must be >= 8 chars). Blocking {path}")
             return web.json_response(
-                {"error": {"message": "Server security configuration error: Insecure or empty API key.", "type": "configuration_error"}},
-                status=500
+                {"error": {"message": "Server security configuration error: Insecure or unconfigured API key.", "type": "configuration_error"}},
+                status=401
             )
 
         auth_header = request.headers.get("Authorization", "").strip()
@@ -823,6 +821,9 @@ def _process_chat_message(cmd: str, user_id: str) -> str:
         try:
             pin = getattr(config, "ADMIN_PIN", "1234")
             res = system.unlock_workstation(pin)
+            if isinstance(res, dict) and (not res.get("success", False) or res.get("is_locked", False)):
+                err_msg = res.get("error") or res.get("message") or "PIN noto'g'ri yoki ekranni ochib bo'lmadi"
+                return f"❌ Ekranni blokdan chiqarishda xatolik: {err_msg}\n\nDiagnostika: Win32 ish stoli sessiyasiga ulanishni va ADMIN_PIN to'g'riligini tekshiring."
             return "🔓 Kompyuter ekrani muvaffaqiyatli uyg'otildi va blokdan chiqarildi."
         except Exception as e:
             logger.error(f"Screen unlock chat error: {e}")
@@ -837,10 +838,11 @@ def _process_chat_message(cmd: str, user_id: str) -> str:
             if sc.get("status") == "success" or sc.get("success"):
                 dims = sc.get("resolution") or (f"{sc.get('width')}x{sc.get('height')}" if sc.get("width") else "1920x1080")
                 timestamp = int(time.time())
-                expected_key = getattr(config, "WEBAPP_API_KEY", "") or os.environ.get("WEBAPP_API_KEY", "") or "monika-secret-key-2026"
+                expected_key = (getattr(config, "WEBAPP_API_KEY", "") or os.environ.get("WEBAPP_API_KEY", "")).strip()
+                api_param = f"&api_key={expected_key}" if expected_key else ""
                 return (
                     f"📸 **Kompyuter ekrani surati olindi** ({dims}):\n\n"
-                    f"![Ekran surati](/api/screenshot?t={timestamp}&api_key={expected_key})"
+                    f"![Ekran surati](/api/screenshot?t={timestamp}{api_param})"
                 )
             else:
                 err_msg = sc.get("message") or sc.get("error") or "Skrinshot olish imkoni bo'lmadi"
@@ -1275,11 +1277,12 @@ async def handle_screen_lock(request: web.Request) -> web.Response:
         return web.json_response({"status": "failed", "error": "Payload exceeds 1MB limit"}, status=413)
     loop = asyncio.get_running_loop()
     res = await loop.run_in_executor(None, system.lock_workstation)
-    logger.info("Workstation locked via /api/screen/lock request.")
+    success = res.get("success", False) if isinstance(res, dict) else bool(res)
+    logger.info(f"Workstation locked via /api/screen/lock request: success={success}")
     return web.json_response({
-        "status": "success",
-        "is_locked": True,
-        "message": res.get("message", "Screen locked"),
+        "status": "success" if success else "failed",
+        "is_locked": True if success else False,
+        "message": res.get("message", "Screen locked") if isinstance(res, dict) else str(res),
     })
 
 
@@ -1334,10 +1337,11 @@ async def handle_action_lock(request: web.Request) -> web.Response:
     """State-aware action: lock workstation (backwards-compatible alias)."""
     loop = asyncio.get_running_loop()
     res = await loop.run_in_executor(None, system.lock_workstation)
+    success = res.get("success", False) if isinstance(res, dict) else bool(res)
     return web.json_response({
-        "status": "success",
-        "is_locked": True,
-        "message": res.get("message", "Kompyuter ekrani qulflandi.")
+        "status": "success" if success else "failed",
+        "is_locked": True if success else False,
+        "message": res.get("message", "Kompyuter ekrani qulflandi.") if isinstance(res, dict) else str(res)
     })
 
 
@@ -1433,7 +1437,10 @@ async def handle_command(request: web.Request) -> web.Response:
         q = cmd.lower()
         # Fast-path local actions & common tools
         if any(w in q for w in ["qulfla", "lock", "blokla"]) and not any(w in q for w in ["och", "unlock", "uyg'ot"]):
-            system.lock_workstation()
+            res = system.lock_workstation()
+            if isinstance(res, dict) and not res.get("success", False):
+                err_msg = res.get("error") or res.get("message") or "Qulflashda xatolik yuz berdi"
+                return f"❌ Ekranni qulflashda xatolik: {err_msg}"
             return "🔒 Kompyuter ekrani muvaffaqiyatli qulflandi."
         if any(w in q for w in ["och", "unlock", "uyg'ot", "wake"]):
             res = sensor.wake_lock_screen()
@@ -1528,7 +1535,9 @@ async def handle_openai_chat_completions(request: web.Request) -> web.Response:
     def _generate():
         q = user_query.lower()
         if any(w in q for w in ["qulfla", "lock", "blokla"]) and not any(w in q for w in ["och", "unlock"]):
-            system.lock_workstation()
+            res = system.lock_workstation()
+            if isinstance(res, dict) and not res.get("success", False):
+                return f"Ekranni qulflashda xatolik: {res.get('message', 'Noma\'lum xatolik')}"
             return "Kompyuter ekrani qulflandi."
         if any(w in q for w in ["tizim holati", "status", "holat"]):
             res = tool_registry.dispatch("get_system_status")
@@ -1634,8 +1643,13 @@ async def handle_lock(request: web.Request) -> web.Response:
     """Immediately lock the workstation."""
     loop = asyncio.get_running_loop()
     res = await loop.run_in_executor(None, system.lock_workstation)
-    logger.info("Workstation locked via WebApp request.")
-    return web.json_response({"status": "success", "result": res, "message": "Kompyuter ekrani muvaffaqiyatli qulflandi."})
+    success = res.get("success", False) if isinstance(res, dict) else bool(res)
+    logger.info(f"Workstation locked via WebApp request: success={success}")
+    return web.json_response({
+        "status": "success" if success else "failed",
+        "result": res,
+        "message": res.get("message", "Kompyuter ekrani muvaffaqiyatli qulflandi.") if isinstance(res, dict) else "Kompyuter ekrani muvaffaqiyatli qulflandi."
+    })
 
 
 async def handle_mute(request: web.Request) -> web.Response:

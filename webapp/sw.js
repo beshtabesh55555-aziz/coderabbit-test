@@ -12,10 +12,12 @@ self.addEventListener('message', (event) => {
     self.skipWaiting();
   }
   if (event.data && event.data.type === 'PURGE_ALL') {
-    caches.keys().then((keys) => Promise.all(keys.map((k) => caches.delete(k))))
-      .then(() => {
-        if (event.ports && event.ports[0]) event.ports[0].postMessage({ success: true });
-      });
+    const purgePromise = caches.keys().then((keys) =>
+      Promise.all(keys.filter((k) => k.startsWith('monika-')).map((k) => caches.delete(k)))
+    ).then(() => {
+      if (event.ports && event.ports[0]) event.ports[0].postMessage({ success: true });
+    });
+    event.waitUntil(purgePromise);
   }
 });
 
@@ -75,7 +77,7 @@ self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((keys) => {
       return Promise.all(
-        keys.filter((key) => key !== CACHE_NAME).map((key) => {
+        keys.filter((key) => key.startsWith('monika-') && key !== CACHE_NAME).map((key) => {
           console.log('[SW] Purging outdated cache:', key);
           return caches.delete(key);
         })
@@ -121,7 +123,11 @@ self.addEventListener('fetch', (event) => {
         .then((response) => {
           if (response && response.status === 200) {
             const responseClone = response.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(request, responseClone));
+            event.waitUntil(
+              caches.open(CACHE_NAME)
+                .then((cache) => cache.put(request, responseClone))
+                .catch((err) => console.warn('[SW] Cache write failed:', err))
+            );
           }
           return response;
         })
@@ -143,7 +149,11 @@ self.addEventListener('fetch', (event) => {
         .then((networkResponse) => {
           if (networkResponse && networkResponse.status === 200) {
             const clone = networkResponse.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
+            event.waitUntil(
+              caches.open(CACHE_NAME)
+                .then((cache) => cache.put(request, clone))
+                .catch((err) => console.warn('[SW] Cache write failed:', err))
+            );
           }
           return networkResponse;
         })

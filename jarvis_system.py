@@ -262,8 +262,14 @@ class JarvisSystem:
             pass
 
         try:
-            subprocess.run(["rundll32.exe", "user32.dll,LockWorkStation"], check=False)
-            return {"success": True, "message": "Workstation locked via rundll32 fallback."}
+            sp_res = subprocess.run(["rundll32.exe", "user32.dll,LockWorkStation"], check=False)
+            if sp_res.returncode == 0:
+                return {"success": True, "message": "Workstation locked via rundll32 fallback."}
+            return {
+                "success": False,
+                "message": f"rundll32 lock failed with exit code {sp_res.returncode}",
+                "error": f"Exit code {sp_res.returncode}"
+            }
         except Exception as err:
             return {"success": False, "message": f"Failed to lock workstation: {err}", "error": str(err)}
 

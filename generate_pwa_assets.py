@@ -3,6 +3,7 @@ PWA Asset & Manifest Generator for Monika AI & Jarvis Core.
 Generates responsive PWA icons, maskable icons, apple-touch-icon, favicons, and manifest.json.
 """
 
+import sys
 import json
 import shutil
 from pathlib import Path
@@ -136,19 +137,6 @@ def generate_manifest():
         ],
         "shortcuts": [
             {
-                "name": "Masofaviy Touchpad",
-                "short_name": "Touchpad",
-                "description": "Monika masofaviy sensorli sichqoncha va klaviatura",
-                "url": "/#touchpad",
-                "icons": [
-                    {
-                        "src": "/icons/icon-192x192.png",
-                        "sizes": "192x192",
-                        "type": "image/png"
-                    }
-                ]
-            },
-            {
                 "name": "Kamera & Vision",
                 "short_name": "Vision",
                 "description": "Monika kompyuter ko'rish va ish stoli nazorati",
@@ -209,22 +197,41 @@ def verify_assets():
             continue
 
         if p.suffix.lower() == ".png":
-            with Image.open(p) as test_img:
-                print(f"✅ {p.name}: {size} bytes | Dim: {test_img.size} | Mode: {test_img.mode}")
+            try:
+                with Image.open(p) as test_img:
+                    test_img.verify()
+                with Image.open(p) as test_img:
+                    test_img.load()
+                    print(f"✅ {p.name}: {size} bytes | Dim: {test_img.size} | Mode: {test_img.mode}")
+            except Exception as e:
+                print(f"❌ CORRUPTED PNG {p.name}: {e}")
+                all_ok = False
         elif p.suffix.lower() == ".ico":
-            with Image.open(p) as test_img:
-                print(f"✅ {p.name}: {size} bytes | Dim: {test_img.size} | Format: {test_img.format}")
+            try:
+                with Image.open(p) as test_img:
+                    test_img.verify()
+                with Image.open(p) as test_img:
+                    test_img.load()
+                    print(f"✅ {p.name}: {size} bytes | Dim: {test_img.size} | Format: {test_img.format}")
+            except Exception as e:
+                print(f"❌ CORRUPTED ICO {p.name}: {e}")
+                all_ok = False
         elif p.suffix.lower() == ".json":
-            with open(p, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                icons_count = len(data.get("icons", []))
-                shortcuts_count = len(data.get("shortcuts", []))
-                print(f"✅ {p.name}: {size} bytes | Valid JSON | Icons: {icons_count} | Shortcuts: {shortcuts_count}")
+            try:
+                with open(p, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    icons_count = len(data.get("icons", []))
+                    shortcuts_count = len(data.get("shortcuts", []))
+                    print(f"✅ {p.name}: {size} bytes | Valid JSON | Icons: {icons_count} | Shortcuts: {shortcuts_count}")
+            except Exception as e:
+                print(f"❌ INVALID JSON {p.name}: {e}")
+                all_ok = False
 
     if all_ok:
         print("\n🎉 ALL ASSETS & MANIFEST VERIFIED SUCCESSFULLY!")
     else:
         print("\n⚠️ SOME ASSETS FAILED VERIFICATION.")
+        sys.exit(1)
 
 if __name__ == "__main__":
     generate_icons()

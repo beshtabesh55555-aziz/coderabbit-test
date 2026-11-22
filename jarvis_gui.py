@@ -225,7 +225,15 @@ class JarvisHUD(ctk.CTk if ctk else tk.Tk):
 
     def action_lock(self):
         self.log_event("Kompyuter ekrani qulflanmoqda...")
-        self.system.lock_workstation()
+        try:
+            res = self.system.lock_workstation()
+            if isinstance(res, dict) and not res.get("success", False):
+                err = res.get("error") or res.get("message") or "Qulflashda xatolik"
+                self.log_event(f"Xatolik: Ekranni qulflab bo'lmadi - {err}")
+            else:
+                self.log_event("Kompyuter ekrani muvaffaqiyatli qulflandi.")
+        except Exception as e:
+            self.log_event(f"Xatolik: Ekranni qulflashda istisno - {e}")
 
     def action_test_voice(self):
         self.log_event("Ovozli javob sinovdan o'tkazilmoqda...")
@@ -263,8 +271,13 @@ class JarvisHUD(ctk.CTk if ctk else tk.Tk):
                     if plugged and bat is not None:
                         bat_str += " [Quvvatlanmoqda]"
                     self.lbl_info.configure(text=f"{bat_str}\nXavfsizlik: {stats.get('security_status', 'Faol')}")
-                except Exception:
-                    pass
+                except Exception as e:
+                    try:
+                        self.lbl_cpu.configure(text="CPU: N/A (Stale)")
+                        self.lbl_ram.configure(text="RAM: N/A (Stale)")
+                        self.lbl_info.configure(text=f"Telemetriya xatosi: {e}")
+                    except Exception:
+                        pass
                 time.sleep(2)
 
         t = threading.Thread(target=loop, daemon=True)
