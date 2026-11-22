@@ -24,6 +24,7 @@ import io
 import sys
 import time
 import math
+import uuid
 import logging
 import threading
 from datetime import datetime
@@ -703,9 +704,10 @@ class JarvisVision:
             logger.warning(msg)
             return msg
 
-        # Save snapshot for upload
+        # Save snapshot for upload with unique query identifier
+        query_id = uuid.uuid4().hex[:8]
         snap_path = self.capture_snapshot(
-            filepath=str(self.snapshots_dir / f"gemini_query_{int(time.time())}.jpg"),
+            filepath=str(self.snapshots_dir / f"gemini_query_{int(time.time())}_{query_id}.jpg"),
             frame=frame
         )
         if not snap_path or not Path(snap_path).exists():
