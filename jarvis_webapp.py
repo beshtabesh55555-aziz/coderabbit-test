@@ -1202,7 +1202,7 @@ async def handle_chat_send(request: web.Request) -> web.Response:
     except Exception:
         data = {}
     message = data.get("message", "").strip()
-    user_id = str(data.get("user_id") or getattr(config, "TELEGRAM_ADMIN_CHAT_ID", "7710339509"))
+    user_id = str(data.get("user_id") or getattr(config, "TELEGRAM_ADMIN_CHAT_ID", None) or "0")
     if not message:
         return web.json_response({"status": "error", "message": "Xabar bo'sh bo'lishi mumkin emas."}, status=400)
 
@@ -1242,7 +1242,7 @@ async def handle_chat_send(request: web.Request) -> web.Response:
 
 async def handle_chat_history(request: web.Request) -> web.Response:
     """Retrieve two-way synced chat history between Telegram Bot and Mini App."""
-    user_id = str(request.query.get("user_id") or getattr(config, "TELEGRAM_ADMIN_CHAT_ID", "7710339509"))
+    user_id = str(request.query.get("user_id") or getattr(config, "TELEGRAM_ADMIN_CHAT_ID", None) or "0")
     limit = int(request.query.get("limit", 30))
     try:
         from jarvis_dialogue import get_dialogue_manager
@@ -1260,7 +1260,7 @@ async def handle_chat_clear(request: web.Request) -> web.Response:
         data = await request.json()
     except Exception:
         data = {}
-    user_id = str(data.get("user_id") or getattr(config, "TELEGRAM_ADMIN_CHAT_ID", "7710339509"))
+    user_id = str(data.get("user_id") or getattr(config, "TELEGRAM_ADMIN_CHAT_ID", None) or "0")
     try:
         from jarvis_dialogue import get_dialogue_manager
         dm = get_dialogue_manager()

@@ -942,7 +942,7 @@ class JarvisCore:
         """
         q = (query or "").lower().strip()
         raw_query = (query or "").strip()
-        uid = str(user_id or getattr(config, "TELEGRAM_ADMIN_CHAT_ID", None) or "7710339509")
+        uid = str(user_id or getattr(config, "TELEGRAM_ADMIN_CHAT_ID", None) or "0")
         self._clarification_dispatched_via_tg = False
         self._media_dispatched_via_tg = False
 

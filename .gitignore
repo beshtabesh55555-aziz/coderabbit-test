@@ -45,10 +45,17 @@ client_secrets.json
 *.log
 tunnel_url.txt
 heartbeat.json
+incident_report.json
 command_traces.jsonl
 user_concierge_state.json
 concierge_inbox.json
 reminders.json
+quick_notes.json
+user_profile.json
+user_dialogue_state.json
+antigravity_tasks.json
+*.tmp
+*.pid
 
 # Temporary Snapshots & Media
 snapshots/
